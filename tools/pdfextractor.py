@@ -1,31 +1,15 @@
+import io
 from pypdf import PdfReader
-from pydantic import BaseModel
-from typing import List
 from google import genai
 from dotenv import load_dotenv
 import os
+from schemas.schema import ResumeData
 
 load_dotenv()
 
-class Project(BaseModel):
-    title: str
-    tech_stack: List[str]
-    description: str
 
-class Experience(BaseModel):
-    company: str
-    role: str
-    duration: str
-    highlights: List[str]
-
-class ResumeData(BaseModel):
-    skills: List[str]
-    tech_stack: List[str]
-    projects: List[Project]
-    experience: List[Experience]
-
-def extract_text_from_pdf(pdf_path):
-    reader = PdfReader(pdf_path)
+def extract_text_from_pdf(pdf_bytes: bytes) -> str:
+    reader = PdfReader(io.BytesIO(pdf_bytes))
     text =""
 
     for page in reader.pages:
@@ -37,9 +21,9 @@ def extract_text_from_pdf(pdf_path):
 
 
 
-def extract_resume_details(pdf_path:str) -> ResumeData:
+def extract_resume_details(pdf_bytes:bytes) -> ResumeData:
 
-    resume_text = extract_text_from_pdf(pdf_path)
+    resume_text = extract_text_from_pdf(pdf_bytes)
 
     client = genai.Client()
 
@@ -53,7 +37,7 @@ def extract_resume_details(pdf_path:str) -> ResumeData:
     """
 
     response = client.models.generate_content(
-    model='gemini-2.5-flash',
+    model='gemini-3.5-flash',
     contents=prompt,
     config=genai.types.GenerateContentConfig(
         response_mime_type="application/json",
@@ -63,6 +47,3 @@ def extract_resume_details(pdf_path:str) -> ResumeData:
     )
     return response.parsed
 
-parsed_resume = extract_resume_details("C:\Code\IntervAI\Resume\Kumar_Ansuman (1).pdf")
-
-skills = parsed_resume.skills

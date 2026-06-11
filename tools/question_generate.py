@@ -1,23 +1,14 @@
-from pdfextractor import skills
-from pydantic import BaseModel
+from schemas.schema import InterviewPrepResponse
 from typing import List
 from google import genai
 from dotenv import load_dotenv
 
 load_dotenv()
 
-class InterviewQuestion(BaseModel):
-    id: int
-    skill_tested: str
-    question: str
-    ideal_answer_keywords: List[str]
-
-class InterviewPrep(BaseModel):
-    candidate_name: str
-    questions_list: List[InterviewQuestion]
 
 
-def generate_interview_questions(candidate_name: str, skills_list: List[str]) -> InterviewPrep:
+
+def generate_interview_questions(candidate_name: str, skills_list: List[str]) -> InterviewPrepResponse:
     """
     Takes a candidate's extracted skills list and generates 5 highly targeted,
     technical interview questions matching a structured Pydantic schema.
@@ -38,17 +29,14 @@ def generate_interview_questions(candidate_name: str, skills_list: List[str]) ->
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash-lite',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=InterviewPrep,  
+            response_schema=InterviewPrepResponse,  
             temperature=0.7,               
         ),
     )
     
     return response.parsed
 
-questions = generate_interview_questions("Kumar Ansuman", skills)
-
-print(questions)
