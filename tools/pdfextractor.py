@@ -65,4 +65,4 @@ def extract_resume_details(pdf_path:str) -> ResumeData:
 
 parsed_resume = extract_resume_details("C:\Code\IntervAI\Resume\Kumar_Ansuman (1).pdf")
 
-print(parsed_resume.skills)
+skills = parsed_resume.skills
