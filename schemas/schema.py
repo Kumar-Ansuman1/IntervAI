@@ -13,6 +13,7 @@ class Experience(BaseModel):
     highlights: List[str]
 
 class ResumeData(BaseModel):
+    name: str
     skills: List[str]
     tech_stack: List[str]
     projects: List[Project]

@@ -37,7 +37,7 @@ def extract_resume_details(pdf_bytes:bytes) -> ResumeData:
     """
 
     response = client.models.generate_content(
-    model='gemini-3.5-flash',
+    model='gemini-2.5-flash',
     contents=prompt,
     config=genai.types.GenerateContentConfig(
         response_mime_type="application/json",
