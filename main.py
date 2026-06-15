@@ -1,6 +1,7 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from tools import pdfextractor,question_generate
-from schemas.schema import InterviewQuestion, InterviewPrepResponse,InterviewPrepRequest
+from tools import pdfextractor,question_generate,evaluation_engine
+from schemas.schema import InterviewQuestion, InterviewPrepResponse,InterviewPrepRequest, EvaluationRequest, InterviewScorecard
+
 
 
 
@@ -57,4 +58,22 @@ async def generate_questions_endpoint(request: InterviewPrepRequest):
         raise HTTPException(
             status_code=500,
             detail=f"Failed to generate interview questions: {str(e)}"
+        )
+    
+@app.post("/evaluate", response_model= InterviewScorecard)
+async def evaluate_endpoint(request: EvaluationRequest):
+    try:
+        if not request.submissions:
+            raise HTTPException(
+                status_code=400,
+                detail="Submission tracker is empty. No answers were provided."
+            )
+
+        scorecard_results = evaluation_engine.evaluate_interview_answers(request)
+        return scorecard_results
+    
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Evaluation Engine Error: {str(e)}"
         )

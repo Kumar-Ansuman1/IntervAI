@@ -1,4 +1,4 @@
-from pydantic import BaseModel
+from pydantic import BaseModel,Field
 from typing import List
 
 class Project(BaseModel):
@@ -32,3 +32,24 @@ class InterviewPrepRequest(BaseModel):
 class InterviewPrepResponse(BaseModel):
     candidate_name: str
     questions_list: List[InterviewQuestion]
+
+class AnswerSubmission(BaseModel):
+    question_id: int
+    question_text: str
+    user_answer: str
+
+class EvaluationRequest(BaseModel):
+    candidate_name: str
+    submissions: List[AnswerSubmission]
+
+class QuestionGrade(BaseModel):
+    question_id: int
+    score: int = Field(description="A score from 0 to 10 evaluating the answer completeness.")
+    feedback: str = Field(description="Constructive critique detailing what was good and what was missing.")
+    missing_keywords: List[str] = Field(description="List of ideal keywords/concepts from the blueprint that the candidate omitted.")
+
+class InterviewScorecard(BaseModel):
+    candidate_name: str
+    overall_technical_rating: float = Field(description="The average technical rating across all answers out of 10.")
+    summary_verdict: str = Field(description="A high-level engineering summary of the candidate's strengths and core areas of improvement.")
+    detailed_grades: List[QuestionGrade]

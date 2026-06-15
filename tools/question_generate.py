@@ -26,7 +26,7 @@ def generate_interview_questions(candidate_name: str, skills_list: List[str]) ->
     """
     
     response = client.models.generate_content(
-        model='gemini-2.5-flash',
+        model='gemini-3.5-flash',
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             response_mime_type="application/json",
