@@ -9,10 +9,7 @@ load_dotenv()
 
 
 def generate_interview_questions(candidate_name: str, skills_list: List[str]) -> InterviewPrepResponse:
-    """
-    Takes a candidate's extracted skills list and generates 5 highly targeted,
-    technical interview questions matching a structured Pydantic schema.
-    """
+    
     client = genai.Client()
     
     skills_formatted = ", ".join(skills_list)
@@ -29,7 +26,7 @@ def generate_interview_questions(candidate_name: str, skills_list: List[str]) ->
     """
     
     response = client.models.generate_content(
-        model='gemini-3.5-flash',
+        model='gemini-2.5-flash',
         contents=prompt,
         config=genai.types.GenerateContentConfig(
             response_mime_type="application/json",
