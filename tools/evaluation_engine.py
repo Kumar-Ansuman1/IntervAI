@@ -1,4 +1,4 @@
-from google import genai
+from langchain_google_genai import ChatGoogleGenerativeAI
 from google.genai import types
 from dotenv import load_dotenv
 from schemas.schema import EvaluationRequest, InterviewScorecard
@@ -7,7 +7,6 @@ load_dotenv()
 
 def evaluate_interview_answers(payload: EvaluationRequest) -> InterviewScorecard:
 
-    client = genai.Client()
 
     formatted_submissions = ""
     for sub in payload.submissions:
@@ -34,15 +33,11 @@ def evaluate_interview_answers(payload: EvaluationRequest) -> InterviewScorecard
     - Calculate the precise mathematical average technical rating out of 10.
     """
 
-    response = client.models.generate_content(
-        model='gemini-3.5-flash',
-        contents=prompt,
-        config=types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=InterviewScorecard,
-            temperature=0.2, 
-        ),
-    )
+    model = ChatGoogleGenerativeAI(model='gemini-3.5-flash')
 
-    return response.parsed
+    structured_model = model.with_structured_output(InterviewScorecard)
+
+    response = structured_model.invoke(prompt)
+
+    return response
 
