@@ -1,6 +1,6 @@
 from schemas.schema import InterviewPrepResponse
 from typing import List
-from google import genai
+from langchain_google_genai import ChatGoogleGenerativeAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -10,7 +10,6 @@ load_dotenv()
 
 def generate_interview_questions(candidate_name: str, skills_list: List[str]) -> InterviewPrepResponse:
     
-    client = genai.Client()
     
     skills_formatted = ", ".join(skills_list)
     
@@ -25,15 +24,11 @@ def generate_interview_questions(candidate_name: str, skills_list: List[str]) ->
     Focus on creating deep, situational, or conceptual engineering questions for their primary tech skills.
     """
     
-    response = client.models.generate_content(
-        model='gemini-3.5-flash',
-        contents=prompt,
-        config=genai.types.GenerateContentConfig(
-            response_mime_type="application/json",
-            response_schema=InterviewPrepResponse,  
-            temperature=0.7,               
-        ),
-    )
-    
-    return response.parsed
+    model = ChatGoogleGenerativeAI(model='gemini-3.5-flash')
+
+    structured_model = model.with_structured_output(InterviewPrepResponse)
+
+    response = structured_model.invoke(prompt)
+
+    return response
 
