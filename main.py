@@ -1,5 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, HTTPException
-from tools import pdfextractor,question_generate,evaluation_engine
+from backend.resume import pdfextractor
+from backend.interview import question_generate,evaluation_engine
 from schemas.schema import InterviewQuestion, InterviewPrepResponse,InterviewPrepRequest, EvaluationRequest, InterviewScorecard
 
 
