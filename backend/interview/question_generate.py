@@ -14,7 +14,7 @@ def generate_interview_questions(candidate_name: str, skills_list: List[str]) ->
     
     skills_formatted = ", ".join(skills_list)
 
-    model = ChatGoogleGenerativeAI(model='gemini-3.5-flash')
+    model = ChatGoogleGenerativeAI(model='gemini-2.5-flash')
     
     structured_model = model.with_structured_output(InterviewPrepResponse)
 
