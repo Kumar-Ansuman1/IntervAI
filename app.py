@@ -1,15 +1,19 @@
 import streamlit as st
 import requests
+from streamlit_mic_recorder import mic_recorder
+import os
 
-st.set_page_config(page_title="IntervAI", page_icon="🔬", layout="centered")
+st.set_page_config(page_title="IntervAI", layout="centered")
 
 #Defining backend URLS
 BASE_URL = "http://127.0.0.1:8000"
 UPLOAD_URL = f"{BASE_URL}/upload-resume"
 GENERATE_URL = f"{BASE_URL}/generate-questions"
 EVALUATE_URL = f"{BASE_URL}/evaluate"
+TTS_URL = f"{BASE_URL}/text-to-speech"
+SPEECH_TO_TEXT_URL= f"{BASE_URL}/speech-to-text"
 
-st.title("🔬 IntervAI — Core Interview Engine")
+st.title("IntervAI — Core Interview Engine")
 st.caption("Upload your resume to instantly generate a customized technical interview scorecard blueprint.")
 
 # It keeps the session data
@@ -21,6 +25,14 @@ if "generated_questions" not in st.session_state:
     st.session_state.generated_questions = None
 if "scorecard" not in st.session_state:
     st.session_state.scorecard = None
+if "current_question" not in st.session_state:
+    st.session_state.current_question = 0
+if "candidate_answers" not in st.session_state:
+    st.session_state.candidate_answers = {}
+if "question_audio" not in st.session_state:
+    st.session_state.question_audio = None
+
+
 
 #Upload the resume
 st.subheader("1. Resume Ingestion")
@@ -60,7 +72,7 @@ if st.button("Generate Interview Questions", type="primary"):
     if not selected_skills:
         st.warning("Please select at least one skill to generate interview questions.")
     else:
-        with st.spinner("Generating schema-locked interview questions..."):
+        with st.spinner("Generating interview questions..."):
             try:
                 payload = {
                     "candidate_name": st.session_state.candidate_name,
@@ -76,68 +88,145 @@ if st.button("Generate Interview Questions", type="primary"):
                 st.error(f"Error communicating with generator endpoint: {str(e)}")  
 
 
+
 #Displaying the questions with input fields and sendig it to the evaluation engine
+
 if st.session_state.generated_questions is not None:
+
     st.divider()
-    st.subheader("🔬 3. Interview Examination")
-    
+    st.subheader("Voice Interview")
 
     client_name = st.session_state.generated_questions.get("candidate_name", "Candidate")
     questions_list = st.session_state.generated_questions.get("questions_list", [])
 
-    st.write(f"**Candidate:** {client_name}")
+    total_questions = len(questions_list)
+    current = st.session_state.current_question
 
-    with st.form("Interview Submission form"):
-        user_answers= {}
+    st.write(f"### Candidate: {client_name}")
 
-        for idx, q in enumerate(questions_list, 1):
-            q_id = q.get("id", idx)
-            q_text = q.get("question", "")
+    progress = (current + 1) / total_questions
+    st.progress(progress)
 
-            with st.container(border=True):
-                st.markdown(f"### Question {idx}")
-                st.write(q_text)
+    st.markdown(f"### Question {current + 1} of {total_questions}")
 
-                user_answers[q_id] = st.text_area(
-                    "Type your detailed technical answer below:",
-                    key=f"ans_{q_id}",
-                    placeholder="Provide your systemic engineering approach or code explanation here..."
-                )
-    
-        submit_interview = st.form_submit_button("Submit Interview for AI Evaluation", type="primary")
+    current_question = questions_list[current]
 
-        if submit_interview:
-            with st.spinner("Analyzing your answers..."):
-                try:
-                    submissions_list = []
-                    for i, q_id in enumerate(user_answers):
-                        dictionary_item = {
-                            "question_id": q_id,
-                            "question_text": questions_list[i].get("question", ""),
-                            "user_answer": user_answers[q_id]
-                        }
-                        submissions_list.append(dictionary_item)
-                    submission_payload = {
-                        "candidate_name": client_name,  # Wraps the name string
-                        "submissions": submissions_list  # Wraps your list inside the required key
+    question_id = current_question["id"]
+    question_text = current_question["question"]
+
+    if st.session_state.question_audio is None:
+
+        with st.spinner("Generating AI voice..."):
+
+            response = requests.post(TTS_URL,json={"text": question_text})
+
+            if response.status_code == 200:
+                st.session_state.question_audio = response.json()["audio_path"]
+            
+            else:
+                st.write(response.status_code)
+                st.write(response.text)
+            
+    with st.container(border=True):
+
+        st.markdown("###  Interview Question")
+
+        st.write(question_text)
+
+        if st.session_state.question_audio:
+            st.audio(st.session_state.question_audio)
+        
+        text_key = f"answer_{question_id}"
+        if text_key not in st.session_state:
+                st.session_state[text_key] = ""
+                
+        audio = mic_recorder(
+            start_prompt="Start Recording",
+            stop_prompt="Stop Recording",
+            just_once=True,
+            use_container_width=True
+        )
+
+        if audio:
+            TEMP_AUDIO_DIR = "temp/audio_answers"
+            os.makedirs(TEMP_AUDIO_DIR, exist_ok=True)
+
+            audio_path = os.path.join(TEMP_AUDIO_DIR,f"answer_{question_id}.wav")
+
+           
+
+            with open(audio_path, "wb") as f:
+                f.write(audio["bytes"])
+            
+            with open(audio_path, "rb") as audio_file:
+
+                response = requests.post(SPEECH_TO_TEXT_URL,files={"audio": audio_file})
+
+            if response.status_code == 200:
+                transcript = response.json()["transcript"]
+                st.session_state[text_key] = transcript
+                st.session_state.candidate_answers[question_id] = transcript
+                st.rerun()
+            
+            
+            
+
+        answer = st.text_area(
+            "Your Answer",
+            height=180,
+            key=text_key
+        )
+            
+
+            
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if current > 0:
+                if st.button("⬅ Previous"):
+                    st.session_state.candidate_answers[question_id] = st.session_state[text_key]
+                    st.session_state.current_question -= 1
+                    st.session_state.question_audio = None
+                    st.rerun()
+        with col2:
+            if current < total_questions - 1:
+                if st.button("Next ➜", type="primary"):
+                    st.session_state.candidate_answers[question_id] = st.session_state[text_key]
+                    st.session_state.current_question += 1
+                    st.session_state.question_audio = None
+                    st.rerun()
+
+
+        if st.button("Submit Interview",type="primary"):
+            st.session_state.candidate_answers[question_id] = answer
+            submissions = []
+            for question in questions_list:
+                submissions.append({
+                    "question_id": question["id"],
+                    "question_text": question["question"],
+                    "user_answer": st.session_state.candidate_answers.get(question["id"], "")
+                     })
+                            
+            payload ={
+                    "candidate_name": client_name,
+                    "submissions": submissions
                     }
-                    
-                    response = requests.post(EVALUATE_URL, json=submission_payload)
+                            
+            with st.spinner("Evaluating interview..."):
+                response = requests.post(EVALUATE_URL, json=payload)
 
-                    if response.status_code == 200:
-                            st.session_state.scorecard = response.json()
-                            st.success("Evaluation complete! Scroll down to view your scorecard.")
-                    else:
-                        st.error(f"Evaluation failed: {response.json().get('detail')}")
-                    
-                except Exception as e:
-                    st.error(f"Error communicating with evaluation server: {str(e)}")
+                if response.status_code == 200:
+                    st.session_state.scorecard = response.json()
+                    st.success("Interview completed!")
 
-
-# Rendering the output result
+                else:
+                    st.error(f"Status Code: {response.status_code}")
+                    st.error(response.text)
+    
+#Rendering the scorecard
 if st.session_state.scorecard is not None:
     st.divider()
-    st.header("🏆 AI Technical Interview Scorecard")
+    st.header("AI Technical Interview Scorecard")
 
     scorecard = st.session_state.scorecard
 
@@ -169,8 +258,3 @@ if st.session_state.scorecard is not None:
                 badges = " ".join([f"`{kw}`" for kw in missing_kw])
                 st.markdown(badges)
             
-                             
-                
-    
-                    
-

@@ -18,7 +18,7 @@ def evaluate_interview_answers(payload: EvaluationRequest) -> InterviewScorecard
         Candidate Answer: {sub.user_answer}
         """
 
-    model = ChatGoogleGenerativeAI(model='gemini-2.5-flash')
+    model = ChatGoogleGenerativeAI(model='gemini-3.5-flash')
 
     structured_model = model.with_structured_output(InterviewScorecard)
 
