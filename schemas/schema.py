@@ -53,3 +53,13 @@ class InterviewScorecard(BaseModel):
     overall_technical_rating: float = Field(description="The average technical rating across all answers out of 10.")
     summary_verdict: str = Field(description="A high-level engineering summary of the candidate's strengths and core areas of improvement.")
     detailed_grades: List[QuestionGrade]
+
+class TextToSpeechRequest(BaseModel):
+    text: str
+    filename: str = "question.wav"
+
+class TextToSpeechResponse(BaseModel):
+    audio_path: str
+
+class SpeechToTextResponse(BaseModel):
+    transcript: str
