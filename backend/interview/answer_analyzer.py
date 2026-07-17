@@ -10,7 +10,7 @@ load_dotenv()
 
 def _create_answer_analyzer():
 
-    model = ChatGoogleGenerativeAI(model="gemini-2.5-flash",temperature=0)
+    model = ChatGoogleGenerativeAI(model="gemini-3.5-flash",temperature=0)
 
     return model.with_structured_output(AnswerAnalysis)
 
@@ -169,3 +169,17 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
         raise RuntimeError(
             f"Failed to analyze candidate answer: {error}"
         ) from error
+
+def calculate_overall_score(analysis: AnswerAnalysis) -> float:
+    """
+    Calculate the candidate's average score for one answer.
+    """
+
+    total_score = (
+        analysis.correctness_score
+        + analysis.completeness_score
+        + analysis.clarity_score
+        + analysis.practical_understanding_score
+    )
+
+    return round(total_score / 4, 2)
