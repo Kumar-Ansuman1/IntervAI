@@ -1,28 +1,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
-class AdaptiveQuestion(BaseModel):
-    question: str = Field(
-        description="A single technical interview question"
-    )
 
-    skill: str = Field(
-        description="The technical skill tested by the question"
-    )
-
-    topic: str = Field(
-        description="The specific topic covered by the question"
-    )
-
-    difficulty: Literal["easy", "medium", "hard"]
-
-    question_type: Literal[
-        "initial",
-        "clarification",
-        "follow_up",
-        "deeper",
-        "new_topic"
-    ]
 
 class AnswerAnalysis(BaseModel):
     correctness_score: int = Field(ge=0, le=10)
@@ -115,3 +94,45 @@ class InterviewDecision(BaseModel):
     question_focus: str | None = None
 
     reason: str
+
+class AdaptiveQuestion(BaseModel):
+    question: str = Field(
+        min_length=5,
+        description=(
+            "Exactly one clear technical interview question. "
+            "It must not contain multiple separate questions."
+        ),
+    )
+
+    skill: str = Field(
+        min_length=1,
+        description="The main technical skill tested by the question.",
+    )
+
+    topic: str = Field(
+        min_length=1,
+        description="The specific technical topic tested by the question.",
+    )
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ]
+
+    question_type: Literal[
+        "initial",
+        "clarification",
+        "follow_up",
+        "deeper",
+        "new_topic",
+        "new_skill",
+    ]
+
+    focus: str = Field(
+        min_length=1,
+        description=(
+            "The particular concept or ability the question evaluates."
+        ),
+    )
+    
