@@ -398,3 +398,128 @@ def _normalize_question(question: str) -> str:
         .strip()
         .split()
     )
+
+
+def _create_initial_question_prompt() -> ChatPromptTemplate:
+    
+
+    return ChatPromptTemplate.from_messages(
+        [
+            (
+                "system",
+                """
+You are an experienced technical interviewer.
+
+Generate exactly one initial technical interview question.
+
+Rules:
+
+1. Generate exactly one question.
+2. Use only the requested starting skill.
+3. Choose an important foundational topic.
+4. Use the requested difficulty.
+5. Make the question open-ended.
+6. Make it suitable for a spoken interview.
+7. Do not provide the answer.
+8. Do not provide hints.
+9. Avoid yes-or-no questions.
+10. The question must end with a question mark.
+11. Set question_type to "initial".
+12. Keep the wording clear and concise.
+"""
+            ),
+            (
+                "human",
+                """
+Generate the first question for this adaptive interview.
+
+Candidate name:
+{candidate_name}
+
+Candidate skills:
+{skills}
+
+Starting skill:
+{starting_skill}
+
+Starting difficulty:
+{starting_difficulty}
+"""
+            ),
+        ]
+    )
+
+def generate_initial_question(
+    candidate_name: str,
+    skills_list: list[str],
+    starting_difficulty: str = "medium",
+) -> AdaptiveQuestion:
+
+
+    candidate_name = candidate_name.strip()
+
+    if not candidate_name:
+        raise ValueError("Candidate name cannot be empty.")
+
+    cleaned_skills = [
+        skill.strip()
+        for skill in skills_list
+        if skill.strip()
+    ]
+
+    if not cleaned_skills:
+        raise ValueError(
+            "At least one valid technical skill is required."
+        )
+
+    starting_difficulty = starting_difficulty.strip().lower()
+
+    if starting_difficulty not in {
+        "easy",
+        "medium",
+        "hard",
+    }:
+        raise ValueError(
+            "Starting difficulty must be easy, medium, or hard."
+        )
+
+    starting_skill = cleaned_skills[0]
+
+    try:
+        generator = _create_question_generator()
+        prompt = _create_initial_question_prompt()
+
+        chain = prompt | generator
+
+        result = chain.invoke(
+            {
+                "candidate_name": candidate_name,
+                "skills": _format_list(cleaned_skills),
+                "starting_skill": starting_skill,
+                "starting_difficulty": starting_difficulty,
+            }
+        )
+
+        if not isinstance(result, AdaptiveQuestion):
+            raise TypeError(
+                "Gemini did not return a valid "
+                "AdaptiveQuestion object."
+            )
+
+        _validate_generated_question(
+            question=result,
+            expected_skill=starting_skill,
+            expected_difficulty=starting_difficulty,
+            expected_question_type="initial",
+            asked_questions=[],
+        )
+
+        return result
+
+    except ValueError:
+        raise
+
+    except Exception as error:
+        raise RuntimeError(
+            f"Failed to generate initial question: {error}"
+        ) from error

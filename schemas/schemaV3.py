@@ -34,20 +34,25 @@ class AnswerAnalysis(BaseModel):
 
 class InterviewTurn(BaseModel):
     question_number: int
-
     question: str
     answer: str | None = None
 
     skill: str
     topic: str
-    difficulty: Literal["easy", "medium", "hard"]
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ]
 
     question_type: Literal[
         "initial",
         "clarification",
         "follow_up",
         "deeper",
-        "new_topic"
+        "new_topic",
+        "new_skill",
     ]
 
     analysis: AnswerAnalysis | None = None
@@ -136,3 +141,16 @@ class AdaptiveQuestion(BaseModel):
         ),
     )
     
+class InterviewStartResult(BaseModel):
+    interview_id: str
+    question_number: int
+    question: AdaptiveQuestion
+    interview_finished: bool = False
+
+class AnswerProcessingResult(BaseModel):
+    interview_id: str
+    analysis: AnswerAnalysis
+    decision: InterviewDecision
+    next_question_number: int | None = None
+    next_question: AdaptiveQuestion | None = None
+    interview_finished: bool
