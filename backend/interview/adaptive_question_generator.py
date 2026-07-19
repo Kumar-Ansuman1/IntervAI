@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from schemas.schema import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
+from schemas.schemaV3 import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
 
 load_dotenv()
 
@@ -342,7 +342,7 @@ def _validate_generated_question(
     asked_questions: list[str],
 ) -> None:
     
-    
+
     generated_text = question.question.strip()
 
     if not generated_text.endswith("?"):
