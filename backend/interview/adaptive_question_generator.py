@@ -10,7 +10,7 @@ load_dotenv()
 def _create_question_generator():
 
     model = ChatGoogleGenerativeAI(
-        model="gemini-3.5-flash",
+        model="gemini-3.1-flash-lite",
         temperature=0.3
     )
 

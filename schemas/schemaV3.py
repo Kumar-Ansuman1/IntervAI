@@ -154,3 +154,45 @@ class AnswerProcessingResult(BaseModel):
     next_question_number: int | None = None
     next_question: AdaptiveQuestion | None = None
     interview_finished: bool
+
+class AdaptiveInterviewStartRequest(BaseModel):
+    candidate_name: str = Field(
+        min_length=1,
+        description="Name of the candidate."
+    )
+
+    skills: list[str] = Field(
+        min_length=1,
+        description="Technical skills extracted from the resume."
+    )
+
+    maximum_questions: int = Field(
+        default=8,
+        ge=1,
+        le=20,
+        description="Maximum total questions in the interview."
+    )
+
+    maximum_questions_per_skill: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum questions allowed for one skill."
+    )
+
+class AdaptiveAnswerRequest(BaseModel):
+    interview_id: str = Field(
+        min_length=1,
+        description="Unique ID of the adaptive interview session."
+    )
+
+    candidate_answer: str = Field(
+        min_length=1,
+        description="Candidate's typed or transcribed answer."
+    )
+
+class FinishAdaptiveInterviewRequest(BaseModel):
+    interview_id: str = Field(
+        min_length=1,
+        description="Interview session that should be finished."
+    )

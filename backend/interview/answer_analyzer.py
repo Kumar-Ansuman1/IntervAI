@@ -10,7 +10,7 @@ load_dotenv()
 
 def _create_answer_analyzer():
 
-    model = ChatGoogleGenerativeAI(model="gemini-3.5-flash",temperature=0)
+    model = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite",temperature=0)
 
     return model.with_structured_output(AnswerAnalysis)
 
