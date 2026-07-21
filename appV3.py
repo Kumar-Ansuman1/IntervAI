@@ -1,5 +1,8 @@
 import requests
 import streamlit as st
+import hashlib
+import io
+from streamlit_mic_recorder import mic_recorder
 
 st.set_page_config(
     page_title="IntervAI Phase 3",
@@ -31,6 +34,9 @@ ADAPTIVE_FINISH_URL = (
 ADAPTIVE_STATE_URL = (
     f"{BASE_URL}/adaptive-interview"
 )
+TTS_URL = f"{BASE_URL}/text-to-speech"
+SPEECH_TO_TEXT_URL = f"{BASE_URL}/speech-to-text"
+
 
 def initialize_session_state() -> None:
     """
@@ -60,6 +66,9 @@ def initialize_session_state() -> None:
         "maximum_questions_per_skill": 3,
 
         "question_audio": None,
+        "question_audio_number": None,
+        "audio_hashes": {},
+        "transcription_in_progress": False,
     }
 
     for key, default_value in default_values.items():
@@ -131,10 +140,168 @@ def reset_interview_state() -> None:
         "latest_analysis": None,
         "latest_decision": None,
         "question_audio": None,
+        "question_audio_number": None,
+        "audio_hashes": {},
+        "transcription_in_progress": False,
     }
 
     for key, value in keys_to_reset.items():
         st.session_state[key] = value
+
+def generate_question_audio(
+    question_text: str,
+    question_number: int,
+) -> None:
+    
+    """
+    Generate speech audio for the current interview question.
+
+    Audio is generated only once for each question.
+    """
+
+    if not question_text.strip():
+        st.error("Cannot generate audio for an empty question.")
+        return
+
+    already_generated = (
+        st.session_state.question_audio is not None
+        and st.session_state.question_audio_number
+        == question_number
+    )
+
+    if already_generated:
+        return
+
+    try:
+        response = requests.post(
+            TTS_URL,
+            json={
+                "text": question_text,
+            },
+            timeout=90,
+        )
+
+        if response.status_code != 200:
+            st.warning(
+                "Question audio could not be generated: "
+                f"{get_backend_error(response)}"
+            )
+            return
+
+        data = response.json()
+
+        audio_path = data.get("audio_path")
+
+        if not audio_path:
+            st.warning(
+                "The Text-to-Speech endpoint did not "
+                "return an audio path."
+            )
+            return
+
+        st.session_state.question_audio = audio_path
+        st.session_state.question_audio_number = (
+            question_number
+        )
+
+    except requests.ConnectionError:
+        st.warning(
+            "Could not connect to the Text-to-Speech service."
+        )
+
+    except requests.Timeout:
+        st.warning(
+            "Text-to-Speech generation took too long."
+        )
+
+    except Exception as error:
+        st.warning(
+            f"Unable to generate question audio: {error}"
+        )
+
+
+def transcribe_recorded_answer(
+    audio_bytes: bytes,
+    question_number: int,
+    answer_key: str,
+    mime_type: str = "audio/wav",
+) -> None:
+    audio_hash = hashlib.sha256(
+        audio_bytes
+    ).hexdigest()
+
+    if (
+        st.session_state.audio_hashes.get(
+            question_number
+        )
+        == audio_hash
+    ):
+        return
+
+    extension_mapping = {
+        "audio/wav": "wav",
+        "audio/x-wav": "wav",
+        "audio/webm": "webm",
+        "audio/mp3": "mp3",
+        "audio/mpeg": "mp3",
+    }
+
+    extension = extension_mapping.get(
+        mime_type,
+        "wav",
+    )
+
+    audio_file = io.BytesIO(audio_bytes)
+    audio_file.name = (
+        f"answer_question_{question_number}."
+        f"{extension}"
+    )
+
+    files = {
+        "audio": (
+            audio_file.name,
+            audio_file,
+            mime_type,
+        )
+    }
+
+    try:
+        response = requests.post(
+            SPEECH_TO_TEXT_URL,
+            files=files,
+            timeout=120,
+        )
+
+        if response.status_code != 200:
+            st.error(
+                "Speech transcription failed: "
+                f"{get_backend_error(response)}"
+            )
+            return
+
+        transcript = response.json().get(
+            "transcript",
+            "",
+        ).strip()
+
+        if not transcript:
+            st.warning(
+                "The speech service returned an "
+                "empty transcript."
+            )
+            return
+
+        st.session_state.audio_hashes[
+            question_number
+        ] = audio_hash
+
+        st.session_state[answer_key] = transcript
+        st.rerun()
+
+    except Exception as error:
+        st.error(
+            f"Unable to transcribe recording: {error}"
+        )
 
 
 def render_resume_section() -> None:
@@ -450,9 +617,16 @@ def start_adaptive_interview() -> None:
 
 
 def render_current_question() -> None:
-
     """
-    Render the current adaptive interview question.
+    Render the current adaptive question with:
+
+    - Interview progress
+    - Question metadata
+    - Text-to-Speech playback
+    - Microphone recording
+    - Speech-to-Text transcription
+    - Editable answer text area
+    - Submit and finish buttons
     """
 
     if not st.session_state.interview_started:
@@ -460,28 +634,6 @@ def render_current_question() -> None:
 
     if st.session_state.interview_finished:
         return
-    
-    maximum_questions = (
-        st.session_state.maximum_questions
-    )
-
-    current_number = (
-        st.session_state.current_question_number
-    )
-
-    progress = min(
-        current_number / maximum_questions,
-        1.0,
-    )
-
- 
-
-    st.progress(progress)
-
-    st.caption(
-        f"Question {current_number} of up to "
-        f"{maximum_questions}"
-    )
 
     question = st.session_state.current_question
 
@@ -492,12 +644,17 @@ def render_current_question() -> None:
         )
         return
 
-    st.divider()
-    st.subheader("Adaptive Technical Interview")
+    question_number = (
+        st.session_state.current_question_number
+    )
 
-    st.markdown(
-        f"### Question "
-        f"{st.session_state.current_question_number}"
+    maximum_questions = (
+        st.session_state.maximum_questions
+    )
+
+    question_text = question.get(
+        "question",
+        "Question unavailable.",
     )
 
     skill = question.get(
@@ -520,6 +677,31 @@ def render_current_question() -> None:
         "initial",
     )
 
+    # Every question receives separate widget keys.
+    # This prevents the previous transcript or recording
+    # from appearing in the next question.
+    answer_key = f"answer_input_{question_number}"
+    recorder_key = f"mic_recorder_{question_number}"
+    submit_key = f"submit_answer_{question_number}"
+    finish_key = f"finish_interview_{question_number}"
+
+    st.divider()
+    st.subheader("Adaptive Technical Interview")
+
+    # Interview progress
+    progress = min(
+        question_number / maximum_questions,
+        1.0,
+    )
+
+    st.progress(progress)
+
+    st.caption(
+        f"Question {question_number} of up to "
+        f"{maximum_questions}"
+    )
+
+    # Question metadata
     col1, col2, col3 = st.columns(3)
 
     with col1:
@@ -543,64 +725,117 @@ def render_current_question() -> None:
             ).title(),
         )
 
+    # Generate TTS audio only once for this question
+    generate_question_audio(
+        question_text=question_text,
+        question_number=question_number,
+    )
 
+    # Keep this container outside the three metadata columns
     with st.container(border=True):
-        st.markdown("#### Interview Question")
-
-    st.write(
-        question.get(
-            "question",
-            "Question unavailable.",
+        st.markdown(
+            f"#### Question {question_number}"
         )
-    )
 
-    st.caption(
-        f"Topic: {topic}"
-    )
+        st.write(question_text)
 
-    st.divider()
+        st.caption(
+            f"Topic: {topic}"
+        )
 
-    answer_key = (
-    f"answer_input_"
-    f"{st.session_state.current_question_number}"
-    )
+        # Question audio
+        if (
+            st.session_state.question_audio
+            and st.session_state.question_audio_number
+            == question_number
+        ):
+            st.markdown("##### Listen to the question")
 
-    answer = st.text_area(
-        "Your Answer",
-        height=180,
-        placeholder=(
-            "Explain your answer clearly. "
-            "You can include examples or practical use cases."
-        ),
-        key=answer_key,
-    )
+            st.audio(
+                st.session_state.question_audio
+            )
 
-    st.session_state.current_answer = answer
+            if st.button(
+                "Regenerate Question Audio",
+                key=f"regenerate_audio_{question_number}",
+                use_container_width=True,
+            ):
+                st.session_state.question_audio = None
+                st.session_state.question_audio_number = None
+                st.rerun()
 
-    submit_column, finish_column = st.columns(2)
+        st.divider()
 
-    with submit_column:
-        submit_button = st.button(
-            "Submit Answer",
-            type="primary",
+        # Candidate recording
+        st.markdown("##### Record your answer")
+
+        recorded_audio = mic_recorder(
+            start_prompt="Start Recording",
+            stop_prompt="Stop Recording",
+            just_once=True,
             use_container_width=True,
+            key=recorder_key,
         )
 
-    with finish_column:
-        finish_button = st.button(
-            "Finish Interview",
-            use_container_width=True,
+        if recorded_audio:
+            audio_bytes = recorded_audio.get("bytes")
+
+            # Depending on the package version, this may be
+            # audio/wav, audio/webm, or another MIME type.
+            mime_type = recorded_audio.get(
+                "format",
+                "audio/wav",
+            )
+
+            if audio_bytes:
+                with st.spinner(
+                    "Converting your voice answer to text..."
+                ):
+                    transcribe_recorded_answer(
+                        audio_bytes=audio_bytes,
+                        question_number=question_number,
+                        answer_key=answer_key,
+                        mime_type=mime_type,
+                    )
+
+        st.caption(
+            "Review and edit the transcript before "
+            "submitting your answer."
         )
 
-    if submit_button:
-        submit_current_answer(answer)
+        # Editable transcript/manual answer
+        answer = st.text_area(
+            "Your Answer",
+            height=180,
+            placeholder=(
+                "Record your answer or type it manually. "
+                "You can edit the transcript before submitting."
+            ),
+            key=answer_key,
+        )
 
-    if finish_button:
-        finish_adaptive_interview()
-        
+        submit_column, finish_column = st.columns(2)
 
+        with submit_column:
+            submit_button = st.button(
+                "Submit Answer",
+                type="primary",
+                use_container_width=True,
+                key=submit_key,
+            )
 
+        with finish_column:
+            finish_button = st.button(
+                "Finish Interview",
+                use_container_width=True,
+                key=finish_key,
+            )
 
+        if submit_button:
+            submit_current_answer(answer)
+
+        if finish_button:
+            finish_adaptive_interview()
 
 def submit_current_answer(
     candidate_answer: str,
@@ -755,8 +990,13 @@ def submit_current_answer(
                     next_question_number
                 )
 
-            st.session_state.current_answer = ""
+                st.session_state.current_question = next_question
+                st.session_state.current_question_number = (
+                next_question_number
+                )
+
             st.session_state.question_audio = None
+            st.session_state.question_audio_number = None
 
             if "answer_input" in st.session_state:
                 del st.session_state["answer_input"]
