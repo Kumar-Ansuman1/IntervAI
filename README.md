@@ -373,7 +373,7 @@ Before running the project, install:
 ### 1. Clone the Repository
 
 ```bash
-git clone https://github.com/<your-github-username>/IntervAI.git
+git clone https://github.com/Kumar-Ansuman1/IntervAI.git
 cd IntervAI
 ```
 
@@ -625,8 +625,7 @@ Until a `LICENSE` file is added, reuse, modification, and distribution rights ar
 
 B.Tech Computer Science and Engineering student focused on AI/ML engineering, LangChain, RAG, FastAPI, and intelligent application development.
 
-* GitHub: `<your-github-profile>`
-* LinkedIn: `<your-linkedin-profile>`
+`
 
 ---
 
