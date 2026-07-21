@@ -1,28 +1,7 @@
 from typing import Literal
 from pydantic import BaseModel, Field
 
-class AdaptiveQuestion(BaseModel):
-    question: str = Field(
-        description="A single technical interview question"
-    )
 
-    skill: str = Field(
-        description="The technical skill tested by the question"
-    )
-
-    topic: str = Field(
-        description="The specific topic covered by the question"
-    )
-
-    difficulty: Literal["easy", "medium", "hard"]
-
-    question_type: Literal[
-        "initial",
-        "clarification",
-        "follow_up",
-        "deeper",
-        "new_topic"
-    ]
 
 class AnswerAnalysis(BaseModel):
     correctness_score: int = Field(ge=0, le=10)
@@ -55,20 +34,25 @@ class AnswerAnalysis(BaseModel):
 
 class InterviewTurn(BaseModel):
     question_number: int
-
     question: str
     answer: str | None = None
 
     skill: str
     topic: str
-    difficulty: Literal["easy", "medium", "hard"]
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ]
 
     question_type: Literal[
         "initial",
         "clarification",
         "follow_up",
         "deeper",
-        "new_topic"
+        "new_topic",
+        "new_skill",
     ]
 
     analysis: AnswerAnalysis | None = None
@@ -115,3 +99,100 @@ class InterviewDecision(BaseModel):
     question_focus: str | None = None
 
     reason: str
+
+class AdaptiveQuestion(BaseModel):
+    question: str = Field(
+        min_length=5,
+        description=(
+            "Exactly one clear technical interview question. "
+            "It must not contain multiple separate questions."
+        ),
+    )
+
+    skill: str = Field(
+        min_length=1,
+        description="The main technical skill tested by the question.",
+    )
+
+    topic: str = Field(
+        min_length=1,
+        description="The specific technical topic tested by the question.",
+    )
+
+    difficulty: Literal[
+        "easy",
+        "medium",
+        "hard",
+    ]
+
+    question_type: Literal[
+        "initial",
+        "clarification",
+        "follow_up",
+        "deeper",
+        "new_topic",
+        "new_skill",
+    ]
+
+    focus: str = Field(
+        min_length=1,
+        description=(
+            "The particular concept or ability the question evaluates."
+        ),
+    )
+    
+class InterviewStartResult(BaseModel):
+    interview_id: str
+    question_number: int
+    question: AdaptiveQuestion
+    interview_finished: bool = False
+
+class AnswerProcessingResult(BaseModel):
+    interview_id: str
+    analysis: AnswerAnalysis
+    decision: InterviewDecision
+    next_question_number: int | None = None
+    next_question: AdaptiveQuestion | None = None
+    interview_finished: bool
+
+class AdaptiveInterviewStartRequest(BaseModel):
+    candidate_name: str = Field(
+        min_length=1,
+        description="Name of the candidate."
+    )
+
+    skills: list[str] = Field(
+        min_length=1,
+        description="Technical skills extracted from the resume."
+    )
+
+    maximum_questions: int = Field(
+        default=8,
+        ge=1,
+        le=20,
+        description="Maximum total questions in the interview."
+    )
+
+    maximum_questions_per_skill: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description="Maximum questions allowed for one skill."
+    )
+
+class AdaptiveAnswerRequest(BaseModel):
+    interview_id: str = Field(
+        min_length=1,
+        description="Unique ID of the adaptive interview session."
+    )
+
+    candidate_answer: str = Field(
+        min_length=1,
+        description="Candidate's typed or transcribed answer."
+    )
+
+class FinishAdaptiveInterviewRequest(BaseModel):
+    interview_id: str = Field(
+        min_length=1,
+        description="Interview session that should be finished."
+    )
