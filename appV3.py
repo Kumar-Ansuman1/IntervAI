@@ -92,6 +92,25 @@ def get_backend_error(
         return response.text or "Unknown backend error."
 
 
+def calculate_answer_score(
+    analysis: dict,
+) -> float:
+    """
+    Calculate the average score for one answer from
+    the four evaluation dimensions.
+    """
+
+    scores = [
+        analysis.get("correctness_score", 0),
+        analysis.get("completeness_score", 0),
+        analysis.get("clarity_score", 0),
+        analysis.get(
+            "practical_understanding_score",
+            0,
+        ),
+    ]
+
+    return round(sum(scores) / len(scores), 2)
 
 
 def reset_interview_state() -> None:
@@ -441,6 +460,28 @@ def render_current_question() -> None:
 
     if st.session_state.interview_finished:
         return
+    
+    maximum_questions = (
+        st.session_state.maximum_questions
+    )
+
+    current_number = (
+        st.session_state.current_question_number
+    )
+
+    progress = min(
+        current_number / maximum_questions,
+        1.0,
+    )
+
+ 
+
+    st.progress(progress)
+
+    st.caption(
+        f"Question {current_number} of up to "
+        f"{maximum_questions}"
+    )
 
     question = st.session_state.current_question
 
@@ -502,23 +543,570 @@ def render_current_question() -> None:
             ).title(),
         )
 
+
     with st.container(border=True):
         st.markdown("#### Interview Question")
 
+    st.write(
+        question.get(
+            "question",
+            "Question unavailable.",
+        )
+    )
+
+    st.caption(
+        f"Topic: {topic}"
+    )
+
+    st.divider()
+
+    answer_key = (
+    f"answer_input_"
+    f"{st.session_state.current_question_number}"
+    )
+
+    answer = st.text_area(
+        "Your Answer",
+        height=180,
+        placeholder=(
+            "Explain your answer clearly. "
+            "You can include examples or practical use cases."
+        ),
+        key=answer_key,
+    )
+
+    st.session_state.current_answer = answer
+
+    submit_column, finish_column = st.columns(2)
+
+    with submit_column:
+        submit_button = st.button(
+            "Submit Answer",
+            type="primary",
+            use_container_width=True,
+        )
+
+    with finish_column:
+        finish_button = st.button(
+            "Finish Interview",
+            use_container_width=True,
+        )
+
+    if submit_button:
+        submit_current_answer(answer)
+
+    if finish_button:
+        finish_adaptive_interview()
+        
+
+
+
+
+def submit_current_answer(
+    candidate_answer: str,
+) -> None:
+    
+    """
+    Submit the current answer to FastAPI.
+
+    The backend will:
+    - analyze the answer
+    - make the controller decision
+    - generate the next question
+    - update the interview state
+    """
+
+    candidate_answer = candidate_answer.strip()
+
+    if not candidate_answer:
+        st.warning(
+            "Please provide an answer before submitting."
+        )
+        return
+
+    interview_id = st.session_state.interview_id
+
+    if not interview_id:
+        st.error(
+            "Interview ID is missing. "
+            "Please restart the interview."
+        )
+        return
+
+    current_question = (
+        st.session_state.current_question or {}
+    )
+
+    payload = {
+        "interview_id": interview_id,
+        "candidate_answer": candidate_answer,
+    }
+
+    with st.spinner(
+        "Analyzing your answer and preparing "
+        "the next adaptive question..."
+    ):
+        try:
+            response = requests.post(
+                ADAPTIVE_ANSWER_URL,
+                json=payload,
+                timeout=120,
+            )
+
+            if response.status_code != 200:
+                st.error(
+                    "Could not process the answer: "
+                    f"{get_backend_error(response)}"
+                )
+                return
+
+            data = response.json()
+
+            analysis = data.get(
+                "analysis",
+                {},
+            )
+
+            decision = data.get(
+                "decision",
+                {},
+            )
+
+            history_entry = {
+                "question_number": (
+                    st.session_state
+                    .current_question_number
+                ),
+                "question": current_question.get(
+                    "question",
+                    "",
+                ),
+                "answer": candidate_answer,
+                "skill": current_question.get(
+                    "skill",
+                    "Unknown",
+                ),
+                "topic": current_question.get(
+                    "topic",
+                    "General",
+                ),
+                "difficulty": current_question.get(
+                    "difficulty",
+                    "medium",
+                ),
+                "question_type": current_question.get(
+                    "question_type",
+                    "initial",
+                ),
+                "analysis": analysis,
+                "decision": decision,
+                "overall_score": (
+                    calculate_answer_score(analysis)
+                ),
+            }
+
+            st.session_state.interview_history.append(
+                history_entry
+            )
+
+            st.session_state.latest_analysis = analysis
+            st.session_state.latest_decision = decision
+
+            interview_finished = data.get(
+                "interview_finished",
+                False,
+            )
+
+            st.session_state.interview_finished = (
+                interview_finished
+            )
+
+            if interview_finished:
+                st.session_state.current_question = None
+
+            else:
+                next_question = data.get(
+                    "next_question"
+                )
+
+                next_question_number = data.get(
+                    "next_question_number"
+                )
+
+                if not next_question:
+                    st.error(
+                        "The backend did not return the "
+                        "next question."
+                    )
+                    return
+
+                if next_question_number is None:
+                    st.error(
+                        "The backend did not return the "
+                        "next question number."
+                    )
+                    return
+
+                st.session_state.current_question = (
+                    next_question
+                )
+
+                st.session_state.current_question_number = (
+                    next_question_number
+                )
+
+            st.session_state.current_answer = ""
+            st.session_state.question_audio = None
+
+            if "answer_input" in st.session_state:
+                del st.session_state["answer_input"]
+
+            st.rerun()
+
+        except requests.ConnectionError:
+            st.error(
+                "Could not connect to FastAPI. "
+                "Make sure the backend is running."
+            )
+
+        except requests.Timeout:
+            st.error(
+                "Answer processing took too long. "
+                "Please try again."
+            )
+
+        except KeyError as error:
+            st.error(
+                "The backend response is missing a "
+                f"required field: {error}"
+            )
+
+        except Exception as error:
+            st.error(
+                "Unexpected error while processing "
+                f"the answer: {error}"
+            )
+
+def finish_adaptive_interview() -> None:
+
+    """
+    Manually finish the current adaptive interview.
+    """
+
+    interview_id = st.session_state.interview_id
+
+    if not interview_id:
+        st.error(
+            "Interview ID is missing."
+        )
+        return
+
+    payload = {
+        "interview_id": interview_id,
+    }
+
+    with st.spinner(
+        "Finishing the interview..."
+    ):
+        try:
+            response = requests.post(
+                ADAPTIVE_FINISH_URL,
+                json=payload,
+                timeout=30,
+            )
+
+            if response.status_code != 200:
+                st.error(
+                    "Could not finish the interview: "
+                    f"{get_backend_error(response)}"
+                )
+                return
+
+            st.session_state.interview_finished = True
+            st.session_state.current_question = None
+            st.session_state.current_answer = ""
+            st.session_state.question_audio = None
+
+            if "answer_input" in st.session_state:
+                del st.session_state["answer_input"]
+
+            st.rerun()
+
+        except requests.ConnectionError:
+            st.error(
+                "Could not connect to FastAPI."
+            )
+
+        except requests.Timeout:
+            st.error(
+                "The finish request took too long."
+            )
+
+        except Exception as error:
+            st.error(
+                f"Unable to finish interview: {error}"
+            )
+
+
+def render_latest_analysis() -> None:
+
+    """
+    Display the evaluation of the most recently
+    submitted answer.
+    """
+
+    analysis = st.session_state.latest_analysis
+    decision = st.session_state.latest_decision
+
+    if not analysis:
+        return
+
+    st.divider()
+
+    with st.expander(
+        "Previous Answer Analysis",
+        expanded=True,
+    ):
+        overall_score = calculate_answer_score(
+            analysis
+        )
+
+        st.metric(
+            "Answer Score",
+            f"{overall_score}/10",
+        )
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.metric(
+                "Correctness",
+                (
+                    f"{analysis.get(
+                        'correctness_score',
+                        0,
+                    )}/10"
+                ),
+            )
+
+            st.metric(
+                "Clarity",
+                (
+                    f"{analysis.get(
+                        'clarity_score',
+                        0,
+                    )}/10"
+                ),
+            )
+
+        with col2:
+            st.metric(
+                "Completeness",
+                (
+                    f"{analysis.get(
+                        'completeness_score',
+                        0,
+                    )}/10"
+                ),
+            )
+
+            st.metric(
+                "Practical Understanding",
+                (
+                    f"{analysis.get(
+                        'practical_understanding_score',
+                        0,
+                    )}/10"
+                ),
+            )
+
+        st.markdown("#### Feedback")
+
         st.write(
-            question.get(
-                "question",
-                "Question unavailable.",
+            analysis.get(
+                "feedback",
+                "No feedback available.",
             )
         )
 
-        st.caption(
-            f"Topic: {topic}"
+        strengths = analysis.get(
+            "strengths",
+            [],
         )
 
-initialize_session_state()
+        if strengths:
+            st.markdown("#### Strengths")
+
+            for strength in strengths:
+                st.write(f"- {strength}")
+
+        missing_concepts = analysis.get(
+            "missing_concepts",
+            [],
+        )
+
+        if missing_concepts:
+            st.markdown("#### Missing Concepts")
+
+            for concept in missing_concepts:
+                st.write(f"- {concept}")
+
+        misconceptions = analysis.get(
+            "misconceptions",
+            [],
+        )
+
+        if misconceptions:
+            st.markdown("#### Misconceptions")
+
+            for misconception in misconceptions:
+                st.write(f"- {misconception}")
+
+        if decision:
+            st.markdown("#### Adaptive Decision")
+
+            action = decision.get(
+                "action",
+                "Unknown",
+            )
+
+            next_difficulty = decision.get(
+                "next_difficulty",
+                "Unknown",
+            )
+
+            st.write(
+                f"**Next action:** "
+                f"{action.replace('_', ' ').title()}"
+            )
+
+            st.write(
+                f"**Next difficulty:** "
+                f"{next_difficulty.title()}"
+            )
+
+            reason = decision.get(
+                "reason"
+            )
+
+            if reason:
+                st.write(
+                    f"**Reason:** {reason}"
+                )
+
+
+def render_interview_completion() -> None:
+
+    """
+    Display the temporary Phase 3 interview summary.
+    """
+
+    if not st.session_state.interview_started:
+        return
+
+    if not st.session_state.interview_finished:
+        return
+
+    st.divider()
+    st.success(
+        "The adaptive interview has been completed."
+    )
+
+    st.header("Interview Summary")
+
+    history = st.session_state.interview_history
+
+    total_answered = len(history)
+
+    st.metric(
+        "Questions Answered",
+        total_answered,
+    )
+
+    if history:
+        answer_scores = [
+            item.get("overall_score", 0)
+            for item in history
+        ]
+
+        overall_score = round(
+            sum(answer_scores) / len(answer_scores),
+            2,
+        )
+
+        st.metric(
+            "Average Technical Score",
+            f"{overall_score}/10",
+        )
+
+        st.subheader("Question History")
+
+        for item in history:
+            title = (
+                f"Question {item['question_number']} — "
+                f"{item['skill']} — "
+                f"{item['overall_score']}/10"
+            )
+
+            with st.expander(title):
+                st.markdown("**Question**")
+                st.write(item["question"])
+
+                st.markdown("**Candidate answer**")
+                st.write(item["answer"])
+
+                analysis = item.get(
+                    "analysis",
+                    {},
+                )
+
+                st.markdown("**Feedback**")
+                st.write(
+                    analysis.get(
+                        "feedback",
+                        "No feedback available.",
+                    )
+                )
+
+                decision = item.get(
+                    "decision",
+                    {},
+                )
+
+                if decision:
+                    st.markdown(
+                        "**Controller decision**"
+                    )
+
+                    st.write(
+                        decision.get(
+                            "action",
+                            "Unknown",
+                        )
+                        .replace("_", " ")
+                        .title()
+                    )
+
+    if st.button(
+        "Start New Interview",
+        type="primary",
+        use_container_width=True,
+    ):
+        reset_interview_state()
+
+        if "answer_input" in st.session_state:
+            del st.session_state["answer_input"]
+
+        st.rerun()
+
+
 
 render_resume_section()
 render_candidate_profile()
 render_interview_setup()
-render_current_question()
+
+if st.session_state.interview_finished:
+    render_interview_completion()
+else:
+    render_current_question()
+    render_latest_analysis()
