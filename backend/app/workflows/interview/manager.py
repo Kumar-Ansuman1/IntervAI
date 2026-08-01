@@ -1,14 +1,14 @@
 from uuid import uuid4
 
-from backend.interview.adaptive_question_generator import (
+from backend.app.services.interview.question_generator import (
     generate_adaptive_question,
     generate_initial_question,
 )
 
-from backend.interview.answer_analyzer import analyze_answer
-from backend.interview.interview_controller import decide_next_step
+from backend.app.services.interview.answer_analyzer import analyze_answer
+from backend.app.domain.interview.controller import decide_next_step
 
-from schemas.schemaV3 import (
+from backend.app.schemas.interview import (
     AdaptiveInterviewState,
     AdaptiveQuestion,
     AnswerProcessingResult,
@@ -21,7 +21,7 @@ interview_sessions: dict[str, AdaptiveInterviewState] = {}
 
 #It removes blank skills, extra spaces, and duplicate names.
 def _clean_skills(skills: list[str],) -> list[str]:
-   
+
 
     cleaned_skills: list[str] = []
     seen_skills: set[str] = set()
@@ -47,8 +47,8 @@ def _clean_skills(skills: list[str],) -> list[str]:
 
 #Convert a generated question into a turn and stores it as memory
 def _create_interview_turn(question_number: int,generated_question: AdaptiveQuestion) -> InterviewTurn:
-    
-    
+
+
     return InterviewTurn(
         question_number=question_number,
         question=generated_question.question,
@@ -61,7 +61,7 @@ def _create_interview_turn(question_number: int,generated_question: AdaptiveQues
 
 
 def start_interview(candidate_name: str,skills: list[str],maximum_questions: int = 8,maximum_questions_per_skill: int = 3,) -> InterviewStartResult:
-   
+
     """
     Start a new adaptive interview.
 
@@ -139,7 +139,7 @@ def start_interview(candidate_name: str,skills: list[str],maximum_questions: int
 
 
 def get_interview_state(interview_id: str) -> AdaptiveInterviewState:
-    
+
     """
     Retrieve an adaptive interview state by ID.
     """
@@ -336,7 +336,7 @@ def process_answer(interview_id: str,candidate_answer: str,) -> AnswerProcessing
     )
 
 def finish_interview(interview_id: str,) -> AdaptiveInterviewState:
-    
+
     """
     Manually finish an active interview.
     """

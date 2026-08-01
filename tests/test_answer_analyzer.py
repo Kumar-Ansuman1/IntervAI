@@ -1,4 +1,4 @@
-from backend.interview.answer_analyzer import analyze_answer,calculate_overall_score
+from backend.app.services.interview.answer_analyzer import analyze_answer,calculate_overall_score
 
 
 def test_answer_analyzer() -> None:

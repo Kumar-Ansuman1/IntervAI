@@ -1,6 +1,6 @@
-from backend.interview.adaptive_question_generator import generate_adaptive_question
+from backend.app.services.interview.question_generator import generate_adaptive_question
 
-from schemas.schemaV3 import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision,InterviewTurn
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision,InterviewTurn
 
 def create_test_analysis() -> AnswerAnalysis:
 
@@ -108,4 +108,3 @@ if __name__ == "__main__":
     print(
         "\nAdaptive question generator test passed."
     )
-

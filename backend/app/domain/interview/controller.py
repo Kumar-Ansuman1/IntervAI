@@ -1,4 +1,4 @@
-from schemas.schemaV3 import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision
 
 DIFFICULTY_LEVELS = ["easy", "medium", "hard"]
 
@@ -10,7 +10,7 @@ def calculate_overall_score(analysis: AnswerAnalysis) -> float:
         + analysis.clarity_score
         + analysis.practical_understanding_score
     )
-    
+
     return round(total_score / 4, 2)
 
 
@@ -20,7 +20,7 @@ def increase_difficulty(current_difficulty: str) -> str:
 
     if current_index < len(DIFFICULTY_LEVELS) - 1:
         return DIFFICULTY_LEVELS[current_index + 1]
-    
+
     return current_difficulty
 
 def decrease_difficulty(current_difficulty: str) -> str:
@@ -29,7 +29,7 @@ def decrease_difficulty(current_difficulty: str) -> str:
 
     if current_index > 0:
         return DIFFICULTY_LEVELS[current_index - 1]
-    
+
     return current_difficulty
 
 def get_remaining_skills(state: AdaptiveInterviewState) -> list[str]:
@@ -46,7 +46,7 @@ def should_finish_interview(state: AdaptiveInterviewState) -> bool:
 
     if state.current_question_number >= state.maximum_questions:
         return True
-    
+
     all_skills_completed = all(skill in state.completed_skills for skill in state.selected_skills)
 
     return all_skills_completed
@@ -66,7 +66,7 @@ def decide_next_step(analysis: AnswerAnalysis,state: AdaptiveInterviewState) -> 
                 "has been reached."
             ),
         )
-    
+
     # Rule 2: Move to another skill when the current skill limit is reached.
     if (state.questions_for_current_skill >= state.maximum_questions_per_skill):
 
@@ -119,7 +119,7 @@ def decide_next_step(analysis: AnswerAnalysis,state: AdaptiveInterviewState) -> 
                 "interview should move to another topic."
             ),
         )
-    
+
     # Rule 4: Partially correct or incomplete answer.
     if overall_score < 7:
         focus = _get_question_focus(analysis)
@@ -133,7 +133,7 @@ def decide_next_step(analysis: AnswerAnalysis,state: AdaptiveInterviewState) -> 
                 "follow-up should examine the missing concepts."
             ),
         )
-    
+
     # Rule 5: Good answer, but not yet exceptional.
     if overall_score < 8.5:
         focus = _get_question_focus(analysis)
@@ -174,7 +174,7 @@ def decide_next_step(analysis: AnswerAnalysis,state: AdaptiveInterviewState) -> 
                 "so the difficulty should be increased."
             ),
         )
-    
+
      # Rule 7: Strong answer at hard difficulty.
     return InterviewDecision(
         action="change_topic",
@@ -187,11 +187,11 @@ def decide_next_step(analysis: AnswerAnalysis,state: AdaptiveInterviewState) -> 
 
 
 def _get_question_focus(analysis: AnswerAnalysis) -> str | None:
-    
+
     if analysis.misconceptions:
         return analysis.misconceptions[0]
-    
+
     if analysis.missing_concepts:
         return analysis.missing_concepts[0]
-    
+
     return analysis.follow_up_focus

@@ -1,6 +1,6 @@
-from backend.interview.interview_controller import calculate_overall_score,decide_next_step
+from backend.app.domain.interview.controller import calculate_overall_score,decide_next_step
 
-from schemas.schemaV3 import AdaptiveInterviewState,AnswerAnalysis
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis
 
 def create_test_state(
     difficulty: str = "medium",
@@ -8,7 +8,7 @@ def create_test_state(
     questions_for_current_skill: int = 1,
     clarification_attempts: int = 0,
 ) -> AdaptiveInterviewState:
-    
+
      return AdaptiveInterviewState(
         interview_id="test-interview-001",
         candidate_name="Kumar",
@@ -232,4 +232,3 @@ if __name__ == "__main__":
     test_maximum_question_limit()
 
     print("\nAll interview controller tests passed.")
-

@@ -5,7 +5,7 @@ import io
 from streamlit_mic_recorder import mic_recorder
 
 st.set_page_config(
-    page_title="IntervAI Phase 3",
+    page_title="IntervAI",
     layout="centered",
 )
 
@@ -41,7 +41,7 @@ SPEECH_TO_TEXT_URL = f"{BASE_URL}/speech-to-text"
 def initialize_session_state() -> None:
     """
     Initialize all Streamlit session values required
-    by the Phase 3 adaptive interview frontend.
+    by the adaptive interview frontend.
     """
 
     default_values = {
@@ -152,7 +152,7 @@ def generate_question_audio(
     question_text: str,
     question_number: int,
 ) -> None:
-    
+
     """
     Generate speech audio for the current interview question.
 
@@ -502,7 +502,7 @@ def render_interview_setup() -> None:
         type="primary",
         use_container_width=True,
     ):
-        
+
         start_adaptive_interview()
 
 
@@ -840,7 +840,7 @@ def render_current_question() -> None:
 def submit_current_answer(
     candidate_answer: str,
 ) -> None:
-    
+
     """
     Submit the current answer to FastAPI.
 
@@ -1238,7 +1238,7 @@ def render_latest_analysis() -> None:
 def render_interview_completion() -> None:
 
     """
-    Display the temporary Phase 3 interview summary.
+    Display the current interview summary.
     """
 
     if not st.session_state.interview_started:

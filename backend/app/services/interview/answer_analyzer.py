@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from schemas.schemaV3 import AnswerAnalysis
+from backend.app.schemas.interview import AnswerAnalysis
 
 load_dotenv()
 
@@ -114,7 +114,7 @@ Candidate answer:
 
 
 def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str, difficulty: str) -> AnswerAnalysis:
-    
+
     question = question.strip()
     candidate_answer = candidate_answer.strip()
     skill = skill.strip()
@@ -132,7 +132,7 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
 
     if not topic:
         raise ValueError("Topic cannot be empty.")
-    
+
 
     allowed_difficulties = {"easy", "medium", "hard"}
 
@@ -140,7 +140,7 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
         raise ValueError(
             "Difficulty must be 'easy', 'medium', or 'hard'."
         )
-    
+
     try:
 
         analyzer = _create_answer_analyzer()
@@ -162,7 +162,7 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
             raise TypeError(
                 "Gemini did not return a valid AnswerAnalysis object."
             )
-        
+
         return result
 
     except Exception as error:

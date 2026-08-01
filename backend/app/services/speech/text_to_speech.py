@@ -33,7 +33,7 @@ def text_to_speech(text: str, filename: str = f"{uuid.uuid4()}.wav", voice_name:
 
     if not api_key:
         raise ValueError("GOOGLE_API_KEY not found in environment variables")
-    
+
     response = client.models.generate_content(
         model="gemini-3.1-flash-tts-preview",
         contents=text,
@@ -64,4 +64,3 @@ if __name__ == "__main__":
     )
 
     print(f"Audio saved to: {audio_file}")
-

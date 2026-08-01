@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from schemas.schemaV3 import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
+from backend.app.schemas.interview import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
 
 load_dotenv()
 
@@ -34,12 +34,12 @@ def _map_action_to_question_type(action: str) -> str:
         raise ValueError(
             f"Cannot generate a question for action: {action}"
         )
-    
+
     return question_type
 
 #gets all the asked question
 def _get_asked_questions(state: AdaptiveInterviewState) -> list[str]:
- 
+
     return [
         turn.question
         for turn in state.interview_history
@@ -167,7 +167,7 @@ def _get_latest_answered_turn(state: AdaptiveInterviewState):
     for turn in reversed(state.interview_history):
         if turn.answer:
             return turn
-    
+
     raise ValueError(
         "No answered interview turn was found."
     )
@@ -177,7 +177,7 @@ def _format_list(values: list[str]) -> str:
 
     if not values:
         return "None"
-    
+
     return "\n".join(
         f"- {value}"
         for value in values
@@ -192,7 +192,7 @@ def _resolve_target_skill(state: AdaptiveInterviewState,decision: InterviewDecis
                 "next_skill is required when changing skill."
             )
         return decision.next_skill
-    
+
     return state.current_skill
 
 
@@ -224,25 +224,25 @@ def _resolve_target_topic(state: AdaptiveInterviewState,decision: InterviewDecis
 
 def generate_adaptive_question(state: AdaptiveInterviewState,analysis: AnswerAnalysis,
 decision: InterviewDecision) -> AdaptiveQuestion:
-    
+
     if decision.action == "finish":
         raise ValueError(
             "A new question cannot be generated because "
             "the interview is finished."
         )
-    
+
     if state.interview_finished:
         raise ValueError(
             "A new question cannot be generated for a "
             "finished interview."
         )
-    
+
     if not state.interview_history:
         raise ValueError(
             "Interview history is empty. Use the initial "
             "question generator to start the interview."
         )
-    
+
     latest_turn = _get_latest_answered_turn(state)
 
     target_skill = _resolve_target_skill(
@@ -313,7 +313,7 @@ decision: InterviewDecision) -> AdaptiveQuestion:
                 "Gemini did not return a valid "
                 "AdaptiveQuestion object."
             )
-        
+
         _validate_generated_question(
             question=result,
             expected_skill=target_skill,
@@ -323,15 +323,15 @@ decision: InterviewDecision) -> AdaptiveQuestion:
         )
 
         return result
-    
+
     except ValueError:
         raise
-    
+
     except Exception as error:
         raise RuntimeError(
             f"Failed to generate adaptive question: {error}"
         ) from error
-    
+
 
 
 def _validate_generated_question(
@@ -341,7 +341,7 @@ def _validate_generated_question(
     expected_question_type: str,
     asked_questions: list[str],
 ) -> None:
-    
+
 
     generated_text = question.question.strip()
 
@@ -388,9 +388,9 @@ def _validate_generated_question(
         raise ValueError(
             "Gemini repeated a previously asked question."
         )
-    
+
 def _normalize_question(question: str) -> str:
-    
+
 
     return " ".join(
         question.lower()
@@ -401,7 +401,7 @@ def _normalize_question(question: str) -> str:
 
 
 def _create_initial_question_prompt() -> ChatPromptTemplate:
-    
+
 
     return ChatPromptTemplate.from_messages(
         [

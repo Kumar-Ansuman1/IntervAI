@@ -140,7 +140,7 @@ class AdaptiveQuestion(BaseModel):
             "The particular concept or ability the question evaluates."
         ),
     )
-    
+
 class InterviewStartResult(BaseModel):
     interview_id: str
     question_number: int

@@ -3,7 +3,7 @@ from pypdf import PdfReader
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
-from schemas.schema import ResumeData
+from backend.app.schemas.resume import ResumeData
 
 load_dotenv()
 
@@ -17,7 +17,7 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         if page_text:
             text += page_text + "\n"
 
-    return text        
+    return text
 
 
 
@@ -31,12 +31,12 @@ def extract_resume_details(pdf_bytes:bytes) -> ResumeData:
 
     template = PromptTemplate(
         template='''
-                You are an expert resume parsing assistant. 
-                Analyze the following raw text extracted from a resume PDF and extract all relevant 
+                You are an expert resume parsing assistant.
+                Analyze the following raw text extracted from a resume PDF and extract all relevant
                 information structural matching the required schema.
-    
+
                 Resume Text:
-                {resume_text}  
+                {resume_text}
             ''',
             input_variables=['resume_text']
     )
@@ -46,6 +46,3 @@ def extract_resume_details(pdf_bytes:bytes) -> ResumeData:
     result = structured_model.invoke(prompt)
 
     return result
-
-    
-
