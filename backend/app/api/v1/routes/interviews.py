@@ -1,6 +1,6 @@
 from fastapi import APIRouter, HTTPException
 
-from backend.app.schemas.adaptive import (
+from backend.app.schemas.interview import (
     AdaptiveAnswerRequest,
     AdaptiveInterviewStartRequest,
     AdaptiveInterviewState,
@@ -8,7 +8,7 @@ from backend.app.schemas.adaptive import (
     FinishAdaptiveInterviewRequest,
     InterviewStartResult,
 )
-from backend.app.workflows.interview.interview_manager import (
+from backend.app.workflows.interview.manager import (
     finish_interview,
     get_interview_state,
     process_answer,

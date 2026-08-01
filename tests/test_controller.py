@@ -1,6 +1,6 @@
-from backend.app.domain.interview.interview_controller import calculate_overall_score,decide_next_step
+from backend.app.domain.interview.controller import calculate_overall_score,decide_next_step
 
-from backend.app.schemas.adaptive import AdaptiveInterviewState,AnswerAnalysis
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis
 
 def create_test_state(
     difficulty: str = "medium",

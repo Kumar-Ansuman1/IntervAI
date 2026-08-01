@@ -1,14 +1,14 @@
 from uuid import uuid4
 
-from backend.app.services.interview.adaptive_question_generator import (
+from backend.app.services.interview.question_generator import (
     generate_adaptive_question,
     generate_initial_question,
 )
 
 from backend.app.services.interview.answer_analyzer import analyze_answer
-from backend.app.domain.interview.interview_controller import decide_next_step
+from backend.app.domain.interview.controller import decide_next_step
 
-from backend.app.schemas.adaptive import (
+from backend.app.schemas.interview import (
     AdaptiveInterviewState,
     AdaptiveQuestion,
     AnswerProcessingResult,

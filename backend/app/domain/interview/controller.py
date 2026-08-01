@@ -1,4 +1,4 @@
-from backend.app.schemas.adaptive import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision
 
 DIFFICULTY_LEVELS = ["easy", "medium", "hard"]
 

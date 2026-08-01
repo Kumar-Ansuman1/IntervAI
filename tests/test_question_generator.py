@@ -1,6 +1,6 @@
-from backend.app.services.interview.adaptive_question_generator import generate_adaptive_question
+from backend.app.services.interview.question_generator import generate_adaptive_question
 
-from backend.app.schemas.adaptive import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision,InterviewTurn
+from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision,InterviewTurn
 
 def create_test_analysis() -> AnswerAnalysis:
 

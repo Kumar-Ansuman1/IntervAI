@@ -1,6 +1,6 @@
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from backend.app.services.resume import pdfextractor
+from backend.app.services.resume import parser
 
 
 router = APIRouter()
@@ -23,7 +23,7 @@ async def upload_resume(file: UploadFile = File(...)):
                 detail="The uploaded file stream is empty.",
             )
 
-        parsed_resume_data = pdfextractor.extract_resume_details(pdf_bytes)
+        parsed_resume_data = parser.extract_resume_details(pdf_bytes)
 
         return parsed_resume_data
 

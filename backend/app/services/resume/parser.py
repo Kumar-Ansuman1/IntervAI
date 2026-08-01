@@ -3,7 +3,7 @@ from pypdf import PdfReader
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import PromptTemplate
 from dotenv import load_dotenv
-from backend.app.schemas.schema import ResumeData
+from backend.app.schemas.resume import ResumeData
 
 load_dotenv()
 

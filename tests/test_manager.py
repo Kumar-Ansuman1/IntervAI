@@ -1,11 +1,11 @@
-from backend.app.workflows.interview.interview_manager import (
+from backend.app.workflows.interview.manager import (
     get_interview_state,
     process_answer,
     start_interview,
 )
 
 
-def test_interview_manager() -> None:
+def test_interview_workflow_manager() -> None:
     start_result = start_interview(
         candidate_name="Kumar",
         skills=[
@@ -89,7 +89,7 @@ def test_interview_manager() -> None:
 
 
 if __name__ == "__main__":
-    test_interview_manager()
+    test_interview_workflow_manager()
 
     print(
         "\nInterview manager test passed."

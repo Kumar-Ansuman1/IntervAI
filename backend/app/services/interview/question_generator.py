@@ -2,7 +2,7 @@ from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from backend.app.schemas.adaptive import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
+from backend.app.schemas.interview import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
 
 load_dotenv()
 

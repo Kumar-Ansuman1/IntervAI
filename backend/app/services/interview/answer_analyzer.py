@@ -4,7 +4,7 @@ from dotenv import load_dotenv
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
-from backend.app.schemas.adaptive import AnswerAnalysis
+from backend.app.schemas.interview import AnswerAnalysis
 
 load_dotenv()
 

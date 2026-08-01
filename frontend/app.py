@@ -5,7 +5,7 @@ import io
 from streamlit_mic_recorder import mic_recorder
 
 st.set_page_config(
-    page_title="IntervAI Phase 3",
+    page_title="IntervAI",
     layout="centered",
 )
 
@@ -41,7 +41,7 @@ SPEECH_TO_TEXT_URL = f"{BASE_URL}/speech-to-text"
 def initialize_session_state() -> None:
     """
     Initialize all Streamlit session values required
-    by the Phase 3 adaptive interview frontend.
+    by the adaptive interview frontend.
     """
 
     default_values = {
@@ -1238,7 +1238,7 @@ def render_latest_analysis() -> None:
 def render_interview_completion() -> None:
 
     """
-    Display the temporary Phase 3 interview summary.
+    Display the current interview summary.
     """
 
     if not st.session_state.interview_started:

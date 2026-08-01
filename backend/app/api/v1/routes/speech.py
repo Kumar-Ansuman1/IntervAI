@@ -2,7 +2,7 @@ import traceback
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
 
-from backend.app.schemas.schema import (
+from backend.app.schemas.speech import (
     SpeechToTextResponse,
     TextToSpeechRequest,
     TextToSpeechResponse,
