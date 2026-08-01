@@ -159,15 +159,15 @@ Phase 3 separates AI-based evaluation and generation from deterministic intervie
 
 ### Backend Components
 
-| File                                               | Responsibility                                                                                                                                                             |
-| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `backend/interview/answer_analyzer.py`             | Evaluates correctness, completeness, clarity, and practical understanding; identifies strengths, missing concepts, and misconceptions; calculates the overall answer score |
-| `backend/interview/interview_controller.py`        | Applies deterministic Python rules; selects the next action and difficulty; enforces interview, skill, and clarification limits                                            |
-| `backend/interview/adaptive_question_generator.py` | Generates the first adaptive question and later questions using the previous answer and controller decision; validates structured output; prevents exact repetitions       |
-| `backend/interview/interview_manager.py`           | Starts interviews, stores sessions, processes answers, updates state, coordinates Phase 3 components, and finishes interviews                                              |
-| `schemas/schema.py`                                | Defines the Pydantic request, response, question, analysis, decision, turn, and interview-state models                                                                     |
-| `app_phase3.py`                                    | Provides the adaptive Streamlit user interface                                                                                                                             |
-| `main.py`                                          | Exposes the FastAPI routes for all interview phases                                                                                                                        |
+| File                                                                | Responsibility                                                                                                                                                             |
+| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `backend/app/services/interview/answer_analyzer.py`                 | Evaluates correctness, completeness, clarity, and practical understanding; identifies strengths, missing concepts, and misconceptions; calculates the overall answer score |
+| `backend/app/domain/interview/interview_controller.py`              | Applies deterministic Python rules; selects the next action and difficulty; enforces interview, skill, and clarification limits                                            |
+| `backend/app/services/interview/adaptive_question_generator.py`     | Generates the first adaptive question and later questions using the previous answer and controller decision; validates structured output; prevents exact repetitions       |
+| `backend/app/workflows/interview/interview_manager.py`              | Starts interviews, stores sessions, processes answers, updates state, coordinates Phase 3 components, and finishes interviews                                              |
+| `backend/app/schemas/adaptive.py`                                   | Defines the adaptive request, response, question, analysis, decision, turn, and interview-state models                                                                     |
+| `frontend/adaptive_app.py`                                          | Provides the adaptive Streamlit user interface                                                                                                                             |
+| `backend/app/api/v1/routes/`                                        | Exposes the FastAPI routes for all interview phases                                                                                                                        |
 
 ### Responsibility Separation
 
@@ -275,27 +275,44 @@ The final Phase 3 result currently provides an interview summary based on the st
 
 ```text
 IntervAI/
-├── app.py
-├── app_phase3.py
-├── main.py
+├── app.py                       # Legacy Streamlit compatibility entry point
+├── appV3.py                     # Adaptive Streamlit compatibility entry point
+├── main.py                      # FastAPI compatibility entry point
 ├── .env
 ├── .gitignore
 ├── README.md
 ├── backend/
-│   ├── interview/
-│   │   ├── question_generate.py
-│   │   ├── evaluation_engine.py
-│   │   ├── answer_analyzer.py
-│   │   ├── interview_controller.py
-│   │   ├── adaptive_question_generator.py
-│   │   └── interview_manager.py
-│   ├── resume/
-│   │   └── pdfextractor.py
-│   └── speech/
-│       ├── text_to_speech.py
-│       └── speech_to_text.py
-├── schemas/
-│   └── schema.py
+│   ├── app/
+│   │   ├── main.py
+│   │   ├── api/
+│   │   │   └── v1/
+│   │   │       ├── router.py
+│   │   │       └── routes/
+│   │   │           ├── health.py
+│   │   │           ├── resumes.py
+│   │   │           ├── fixed_interviews.py
+│   │   │           ├── adaptive_interviews.py
+│   │   │           └── speech.py
+│   │   ├── domain/
+│   │   │   └── interview/
+│   │   │       └── interview_controller.py
+│   │   ├── schemas/
+│   │   │   ├── schema.py
+│   │   │   └── adaptive.py
+│   │   ├── services/
+│   │   │   ├── interview/
+│   │   │   ├── resume/
+│   │   │   └── speech/
+│   │   └── workflows/
+│   │       └── interview/
+│   │           └── interview_manager.py
+│   ├── interview/               # Legacy import compatibility
+│   ├── resume/                  # Legacy import compatibility
+│   └── speech/                  # Legacy import compatibility
+├── frontend/
+│   ├── legacy_app.py
+│   └── adaptive_app.py
+├── schemas/                     # Legacy import compatibility
 ├── tests/
 │   ├── test_answer_analyzer.py
 │   ├── test_interview_controller.py
@@ -462,7 +479,7 @@ Keep this terminal running while using the Streamlit frontend.
 Open a second terminal in the project root, activate the same virtual environment, and run:
 
 ```bash
-streamlit run app_phase3.py
+streamlit run appV3.py
 ```
 
 Streamlit normally opens the application at:

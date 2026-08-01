@@ -1,4 +1,4 @@
-from backend.interview.interview_manager import (
+from backend.app.workflows.interview.interview_manager import (
     get_interview_state,
     process_answer,
     start_interview,
