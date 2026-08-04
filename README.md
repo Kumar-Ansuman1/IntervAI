@@ -10,7 +10,8 @@ The repository contains only the adaptive interview workflow. The earlier fixed-
 - Candidate skill selection and interview configuration
 - One-question-at-a-time adaptive interviews
 - Structured answer analysis with Pydantic
-- Deterministic difficulty and routing decisions
+- Deterministic difficulty and LangGraph routing decisions
+- Checkpointed workflow state for each interview session
 - Clarification, follow-up, deeper-topic, new-topic, and new-skill questions
 - Text-to-Speech question playback
 - Speech-to-Text candidate answers
@@ -26,17 +27,20 @@ Streamlit frontend
 FastAPI routes
         ↓
 Interview workflow manager
+        ↓
+LangGraph state machine + checkpointer
         ├── Answer analyzer service
         ├── Deterministic controller
         └── Question generator service
         ↓
-Validated interview state and history
+Validated interview state, history, and checkpoints
 ```
 
 The responsibilities are separated as follows:
 
 - **Routes** receive requests and return responses.
-- **Workflow** coordinates the interview lifecycle.
+- **Workflow manager** keeps the API-facing functions stable.
+- **LangGraph workflow** coordinates explicit nodes, branches, and state checkpoints.
 - **Domain controller** applies predictable interview rules.
 - **Services** call Gemini or process files and audio.
 - **Schemas** validate application data.
@@ -74,6 +78,7 @@ IntervAI/
 │       │       └── text_to_speech.py
 │       └── workflows/
 │           └── interview/
+│               ├── graph.py
 │               └── manager.py
 ├── frontend/
 │   └── app.py
@@ -99,21 +104,24 @@ IntervAI/
 
 1. The frontend sends the candidate name, selected skills, and question limits.
 2. The workflow validates and cleans the input.
-3. The question generator creates the initial question.
-4. The workflow creates an interview ID and stores the initial state.
+3. LangGraph runs the `initialize_interview` node.
+4. The question generator creates the initial question.
+5. The in-memory checkpointer stores the initial graph state under the interview ID.
 
 ### 3. Answer processing
 
 1. The candidate types an answer or records it using the microphone.
 2. Speech-to-Text produces an editable transcript when voice input is used.
-3. The answer analyzer evaluates the submitted answer.
-4. The controller decides the next action and difficulty.
-5. The question generator creates and validates the next question.
-6. The workflow updates the interview state and history.
+3. The `analyze_answer` node evaluates the submitted answer.
+4. The deterministic `decide_next_step` node selects the next action and difficulty.
+5. A conditional edge routes to completion or question generation.
+6. The `generate_question` node creates and validates the next question.
+7. The `update_interview` node updates the state and history.
+8. LangGraph checkpoints each successful transition. A failed node can be retried without repeating completed upstream nodes.
 
 ### 4. Completion
 
-The interview finishes when the total question limit is reached, all selected skills receive enough coverage, or the candidate manually finishes the interview.
+The graph routes to `complete_after_answer` when the deterministic controller returns `finish`. A manual request routes directly to `finish_interview`.
 
 ## Controller Actions
 
@@ -194,12 +202,12 @@ pytest -v
 
 ## Current Limitations
 
-- Interview sessions are stored in an in-memory dictionary.
-- Sessions are lost when the backend restarts.
+- Interview sessions use LangGraph's in-memory checkpointer.
+- Checkpoints are lost when the backend restarts; a database-backed checkpointer is still required for durable production persistence.
 - No authentication or authorization is implemented.
 - Model calls do not yet have centralized retries or fallback routing.
 - Application logging and LangSmith observability are not implemented yet.
 - Exact duplicate questions are rejected, but semantic duplicates are not detected.
 - The final interview report is currently calculated in the frontend.
 
-The next architectural step is to replace the manual interview manager with a LangGraph workflow while preserving the current analyzer, controller, and question-generator responsibilities.
+The next architectural steps are durable checkpoint storage, structured application logging, LangSmith observability, and a centralized model gateway with retry and fallback policies.
