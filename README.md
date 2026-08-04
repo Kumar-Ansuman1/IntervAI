@@ -39,11 +39,23 @@ Validated interview state, history, and checkpoints
 The responsibilities are separated as follows:
 
 - **Routes** receive requests and return responses.
-- **Workflow manager** keeps the API-facing functions stable.
-- **LangGraph workflow** coordinates explicit nodes, branches, and state checkpoints.
+- **Workflow manager** connects the real analyzer, generators, and controller to the graph while keeping the API-facing functions stable.
+- **LangGraph workflow** defines the shared state, nodes, conditional edges, lifecycle operations, and checkpoints.
 - **Domain controller** applies predictable interview rules.
 - **Services** call Gemini or process files and audio.
 - **Schemas** validate application data.
+
+## LangGraph Workflow
+
+![IntervAI Phase 3 LangGraph workflow](docs/images/langgraph-workflow.svg)
+
+The graph accepts three operations:
+
+- `start` routes to `initialize_interview`, creates the first question, and stores the initial checkpoint.
+- `answer` routes through answer analysis and the deterministic controller. A conditional edge then completes the interview or generates and stores another question.
+- `finish` routes directly to `finish_interview` for manual completion.
+
+The interview ID is also the LangGraph `thread_id`, keeping each candidate's checkpoints separate. If a downstream node fails, the same answer can resume from the pending node without repeating successful upstream nodes.
 
 ## Project Structure
 
@@ -82,6 +94,9 @@ IntervAI/
 │               └── manager.py
 ├── frontend/
 │   └── app.py
+├── docs/
+│   └── images/
+│       └── langgraph-workflow.svg
 ├── tests/
 │   ├── test_answer_analyzer.py
 │   ├── test_controller.py
@@ -157,6 +172,12 @@ GOOGLE_API_KEY=your_google_api_key
 
 The `.env` file is ignored by Git and must not be committed.
 
+Until the final dependency manifest is generated, install LangGraph in the active virtual environment:
+
+```bash
+pip install langgraph
+```
+
 ## Run the Backend
 
 From the repository root:
@@ -192,7 +213,10 @@ The current tests cover:
 - Structured answer analysis
 - Deterministic controller decisions
 - Initial and adaptive question generation
-- Interview state and lifecycle management
+- LangGraph state and lifecycle management
+- Conditional continuation and completion routing
+- Checkpoint recovery after a failed node
+- Manual completion, including cancellation of a pending failed run
 
 Once the dependency manifest is added, the test suite can be run with:
 
