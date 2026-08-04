@@ -1,0 +1,114 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1300" viewBox="0 0 1600 1300" role="img" aria-labelledby="title description">
+  <title id="title">IntervAI Phase 3 LangGraph workflow</title>
+  <desc id="description">The operation router sends start requests to interview initialization, answer requests through analysis and deterministic decision routing, and finish requests to manual completion. Successful node transitions are checkpointed by interview ID.</desc>
+
+  <defs>
+    <linearGradient id="background" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#f8fafc"/>
+      <stop offset="100%" stop-color="#eef2ff"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#0f172a" flood-opacity="0.12"/>
+    </filter>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <style>
+      .title { font: 700 48px Arial, sans-serif; fill: #0f172a; }
+      .subtitle { font: 400 22px Arial, sans-serif; fill: #475569; }
+      .node-title { font: 700 25px Arial, sans-serif; fill: #0f172a; }
+      .node-subtitle { font: 400 18px Arial, sans-serif; fill: #475569; }
+      .edge-label { font: 700 18px Arial, sans-serif; fill: #334155; }
+      .end-label { font: 700 19px Arial, sans-serif; fill: #ffffff; }
+      .arrow { fill: none; stroke: #475569; stroke-width: 4; marker-end: url(#arrow); }
+      .node { stroke-width: 3; filter: url(#shadow); }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1300" rx="32" fill="url(#background)"/>
+
+  <text x="800" y="68" text-anchor="middle" class="title">IntervAI Phase 3 LangGraph Workflow</text>
+  <text x="800" y="108" text-anchor="middle" class="subtitle">thread_id = interview_id · successful transitions are checkpointed with InMemorySaver</text>
+
+  <rect x="690" y="145" width="220" height="72" rx="36" fill="#0f172a" class="node" stroke="#0f172a"/>
+  <text x="800" y="190" text-anchor="middle" class="end-label">START</text>
+
+  <path d="M 800 217 L 800 270" class="arrow"/>
+
+  <rect x="630" y="270" width="340" height="105" rx="22" fill="#ffffff" stroke="#6366f1" class="node"/>
+  <text x="800" y="316" text-anchor="middle" class="node-title">Operation Router</text>
+  <text x="800" y="348" text-anchor="middle" class="node-subtitle">start · answer · finish</text>
+
+  <path d="M 630 323 C 500 323, 340 360, 260 420" class="arrow"/>
+  <text x="455" y="332" text-anchor="middle" class="edge-label">start</text>
+
+  <path d="M 800 375 L 800 420" class="arrow"/>
+  <text x="842" y="405" class="edge-label">answer</text>
+
+  <path d="M 970 323 C 1100 323, 1260 360, 1340 420" class="arrow"/>
+  <text x="1145" y="332" text-anchor="middle" class="edge-label">finish</text>
+
+  <rect x="85" y="420" width="350" height="118" rx="22" fill="#ecfdf5" stroke="#10b981" class="node"/>
+  <text x="260" y="468" text-anchor="middle" class="node-title">initialize_interview</text>
+  <text x="260" y="502" text-anchor="middle" class="node-subtitle">Validate input and generate</text>
+  <text x="260" y="528" text-anchor="middle" class="node-subtitle">the initial question</text>
+
+  <path d="M 260 538 L 260 604" class="arrow"/>
+  <circle cx="260" cy="650" r="46" fill="#0f172a" class="node" stroke="#0f172a"/>
+  <text x="260" y="657" text-anchor="middle" class="end-label">END</text>
+
+  <rect x="625" y="420" width="350" height="118" rx="22" fill="#eff6ff" stroke="#3b82f6" class="node"/>
+  <text x="800" y="468" text-anchor="middle" class="node-title">analyze_answer</text>
+  <text x="800" y="502" text-anchor="middle" class="node-subtitle">Store the answer and call</text>
+  <text x="800" y="528" text-anchor="middle" class="node-subtitle">the answer analyzer</text>
+
+  <path d="M 800 538 L 800 590" class="arrow"/>
+
+  <rect x="625" y="590" width="350" height="118" rx="22" fill="#fff7ed" stroke="#f59e0b" class="node"/>
+  <text x="800" y="638" text-anchor="middle" class="node-title">decide_next_step</text>
+  <text x="800" y="672" text-anchor="middle" class="node-subtitle">Apply deterministic</text>
+  <text x="800" y="698" text-anchor="middle" class="node-subtitle">controller rules</text>
+
+  <path d="M 800 708 L 800 748" class="arrow"/>
+
+  <polygon points="800,748 950,830 800,912 650,830" fill="#fefce8" stroke="#eab308" class="node"/>
+  <text x="800" y="822" text-anchor="middle" class="node-title">Decision action</text>
+  <text x="800" y="854" text-anchor="middle" class="node-subtitle">finish or continue?</text>
+
+  <rect x="1165" y="420" width="350" height="118" rx="22" fill="#fef2f2" stroke="#ef4444" class="node"/>
+  <text x="1340" y="468" text-anchor="middle" class="node-title">finish_interview</text>
+  <text x="1340" y="502" text-anchor="middle" class="node-subtitle">Manually mark the current</text>
+  <text x="1340" y="528" text-anchor="middle" class="node-subtitle">interview as finished</text>
+
+  <path d="M 1340 538 L 1340 604" class="arrow"/>
+  <circle cx="1340" cy="650" r="46" fill="#0f172a" class="node" stroke="#0f172a"/>
+  <text x="1340" y="657" text-anchor="middle" class="end-label">END</text>
+
+  <path d="M 650 830 C 555 830, 500 860, 445 925" class="arrow"/>
+  <text x="545" y="850" text-anchor="middle" class="edge-label">finish</text>
+
+  <rect x="245" y="925" width="400" height="110" rx="22" fill="#fef2f2" stroke="#ef4444" class="node"/>
+  <text x="445" y="972" text-anchor="middle" class="node-title">complete_after_answer</text>
+  <text x="445" y="1006" text-anchor="middle" class="node-subtitle">Return the final answer result</text>
+
+  <path d="M 445 1035 L 445 1080" class="arrow"/>
+  <circle cx="445" cy="1126" r="46" fill="#0f172a" class="node" stroke="#0f172a"/>
+  <text x="445" y="1133" text-anchor="middle" class="end-label">END</text>
+
+  <path d="M 950 830 C 1045 830, 1100 860, 1155 925" class="arrow"/>
+  <text x="1055" y="850" text-anchor="middle" class="edge-label">continue</text>
+
+  <rect x="955" y="925" width="400" height="110" rx="22" fill="#f5f3ff" stroke="#8b5cf6" class="node"/>
+  <text x="1155" y="972" text-anchor="middle" class="node-title">generate_question</text>
+  <text x="1155" y="1006" text-anchor="middle" class="node-subtitle">Generate and validate one question</text>
+
+  <path d="M 1155 1035 L 1155 1070" class="arrow"/>
+
+  <rect x="955" y="1070" width="400" height="95" rx="22" fill="#ecfeff" stroke="#06b6d4" class="node"/>
+  <text x="1155" y="1110" text-anchor="middle" class="node-title">update_interview</text>
+  <text x="1155" y="1142" text-anchor="middle" class="node-subtitle">Update counters, history and state</text>
+
+  <path d="M 1155 1165 L 1155 1192" class="arrow"/>
+  <circle cx="1155" cy="1240" r="46" fill="#0f172a" class="node" stroke="#0f172a"/>
+  <text x="1155" y="1247" text-anchor="middle" class="end-label">END</text>
+</svg>
