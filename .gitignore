@@ -1,4 +1,7 @@
 .venv
 .env
+.logfire
 __pycache__
+*.py[cod]
+.pytest_cache
 temp

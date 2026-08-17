@@ -12,6 +12,8 @@ The repository contains only the adaptive interview workflow. The earlier fixed-
 - Structured answer analysis with Pydantic
 - Deterministic difficulty and LangGraph routing decisions
 - Checkpointed workflow state for each interview session
+- Pydantic Logfire traces for FastAPI, Gemini, and LangGraph workflow stages
+- Privacy-safe Pydantic validation metrics and request metadata
 - Clarification, follow-up, deeper-topic, new-topic, and new-skill questions
 - Text-to-Speech question playback
 - Speech-to-Text candidate answers
@@ -44,6 +46,7 @@ The responsibilities are separated as follows:
 - **Domain controller** applies predictable interview rules.
 - **Services** call Gemini or process files and audio.
 - **Schemas** validate application data.
+- **Observability** records API latency, validation metrics, Gemini calls, workflow-stage timing, and exceptions in Pydantic Logfire.
 
 ## LangGraph Workflow
 
@@ -64,6 +67,8 @@ IntervAI/
 ├── backend/
 │   └── app/
 │       ├── main.py
+│       ├── core/
+│       │   └── observability.py
 │       ├── api/
 │       │   └── v1/
 │       │       ├── router.py
@@ -101,8 +106,11 @@ IntervAI/
 │   ├── test_answer_analyzer.py
 │   ├── test_controller.py
 │   ├── test_question_generator.py
-│   └── test_manager.py
+│   ├── test_manager.py
+│   └── test_observability.py
+├── .env.example
 ├── .gitignore
+├── requirements.txt
 └── README.md
 ```
 
@@ -164,19 +172,38 @@ The graph routes to `complete_after_answer` when the deterministic controller re
 
 ## Environment
 
-Create a local `.env` file containing:
+Copy `.env.example` to a local `.env` file and set:
 
 ```env
 GOOGLE_API_KEY=your_google_api_key
+
+LOGFIRE_TOKEN=your_logfire_write_token
+LOGFIRE_SERVICE_NAME=intervai-api
+LOGFIRE_ENVIRONMENT=development
+LOGFIRE_SEND_TO_LOGFIRE=if-token-present
 ```
 
-The `.env` file is ignored by Git and must not be committed.
+The `.env` file is ignored by Git and must not be committed. With the default `if-token-present` setting, the app starts normally without a Logfire token and sends telemetry only when `LOGFIRE_TOKEN` is available.
 
-Until the final dependency manifest is generated, install LangGraph in the active virtual environment:
+Install the project dependencies:
 
 ```bash
-pip install langgraph
+pip install -r requirements.txt
 ```
+
+## Pydantic Logfire Observability
+
+At startup, IntervAI configures Logfire before importing the API routes. This enables:
+
+- FastAPI request duration, status, and exception traces
+- Pydantic validation metrics
+- Privacy-safe spans for the LangGraph start, analyze, decide, generate, and finish stages
+- Google Gen AI request latency, token metadata, and failures
+- Trace correlation by interview ID
+
+Candidate names, answer text, resume content, transcripts, request headers, and uploaded audio are not added to custom span attributes. FastAPI request values are removed before export, and Gemini prompt/response content remains elided by default.
+
+To view remote traces, create a Logfire project, copy its write token into `LOGFIRE_TOKEN`, start the backend, and open the Logfire Live view. Do not enable `OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT` for real candidate interviews unless you intentionally want prompts and model responses exported.
 
 ## Run the Backend
 
@@ -217,8 +244,9 @@ The current tests cover:
 - Conditional continuation and completion routing
 - Checkpoint recovery after a failed node
 - Manual completion, including cancellation of a pending failed run
+- Privacy-safe Logfire request attributes and configuration behavior
 
-Once the dependency manifest is added, the test suite can be run with:
+Run the test suite with:
 
 ```bash
 pytest -v
@@ -230,8 +258,8 @@ pytest -v
 - Checkpoints are lost when the backend restarts; a database-backed checkpointer is still required for durable production persistence.
 - No authentication or authorization is implemented.
 - Model calls do not yet have centralized retries or fallback routing.
-- Application logging and LangSmith observability are not implemented yet.
+- Native LangSmith/OpenTelemetry export for complete LangGraph state trees is not enabled; privacy-safe Logfire workflow spans are used instead.
 - Exact duplicate questions are rejected, but semantic duplicates are not detected.
 - The final interview report is currently calculated in the frontend.
 
-The next architectural steps are durable checkpoint storage, structured application logging, LangSmith observability, and a centralized model gateway with retry and fallback policies.
+The next architectural steps are durable checkpoint storage, centralized structured logging, production sampling and alerting, and a model gateway with retry and fallback policies.
