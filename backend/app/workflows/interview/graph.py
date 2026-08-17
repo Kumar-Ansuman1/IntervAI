@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import Literal, TypedDict
 from uuid import uuid4
 
+import logfire
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 
@@ -280,7 +281,7 @@ class InterviewWorkflow:
         maximum_questions_per_skill: int = 3,
     ) -> InterviewStartResult:
         interview_id = str(uuid4())
-        result = self._graph.invoke(
+        result = self._invoke_graph(
             {
                 "operation": "start",
                 "interview_id": interview_id,
@@ -291,7 +292,8 @@ class InterviewWorkflow:
                     maximum_questions_per_skill
                 ),
             },
-            self._config(interview_id),
+            interview_id=interview_id,
+            operation="start",
         )
 
         start_result = result.get("start_result")
@@ -330,17 +332,19 @@ class InterviewWorkflow:
                     "Retry that same answer before submitting another one."
                 )
 
-            result = self._graph.invoke(
+            result = self._invoke_graph(
                 None,
-                self._config(interview_id),
+                interview_id=interview_id,
+                operation="answer",
             )
         else:
-            result = self._graph.invoke(
+            result = self._invoke_graph(
                 {
                     "operation": "answer",
                     "candidate_answer": candidate_answer,
                 },
-                self._config(interview_id),
+                interview_id=interview_id,
+                operation="answer",
             )
 
         answer_result = result.get("answer_result")
@@ -384,9 +388,10 @@ class InterviewWorkflow:
             )
             return finished_interview
 
-        result = self._graph.invoke(
+        result = self._invoke_graph(
             {"operation": "finish"},
-            self._config(interview_id),
+            interview_id=interview_id,
+            operation="finish",
         )
         finished_interview = result.get("interview")
 
@@ -424,11 +429,21 @@ class InterviewWorkflow:
             )
 
         cleaned_skills = _clean_skills(state.get("skills", []))
-        initial_question = self._generate_initial_question(
-            candidate_name=candidate_name,
-            skills_list=cleaned_skills,
-        )
         interview_id = state["interview_id"]
+
+        with logfire.span(
+            "interview node: initialize",
+            interview_id=interview_id,
+            skill_count=len(cleaned_skills),
+        ) as node_span:
+            initial_question = self._generate_initial_question(
+                candidate_name=candidate_name,
+                skills_list=cleaned_skills,
+            )
+            node_span.set_attribute(
+                "question_difficulty",
+                initial_question.difficulty,
+            )
         interview = AdaptiveInterviewState(
             interview_id=interview_id,
             candidate_name=candidate_name,
@@ -477,13 +492,27 @@ class InterviewWorkflow:
 
         updated_interview = interview.model_copy(deep=True)
         current_turn = _get_current_turn(updated_interview)
-        analysis = self._analyze_answer(
-            question=current_turn.question,
-            candidate_answer=candidate_answer,
-            skill=current_turn.skill,
-            topic=current_turn.topic,
-            difficulty=current_turn.difficulty,
-        )
+        with logfire.span(
+            "interview node: analyze answer",
+            interview_id=interview.interview_id,
+            question_number=interview.current_question_number,
+            answer_length=len(candidate_answer),
+        ) as node_span:
+            analysis = self._analyze_answer(
+                question=current_turn.question,
+                candidate_answer=candidate_answer,
+                skill=current_turn.skill,
+                topic=current_turn.topic,
+                difficulty=current_turn.difficulty,
+            )
+            node_span.set_attribute(
+                "correctness_score",
+                analysis.correctness_score,
+            )
+            node_span.set_attribute(
+                "completeness_score",
+                analysis.completeness_score,
+            )
         current_turn.answer = candidate_answer
         current_turn.analysis = analysis
 
@@ -499,10 +528,23 @@ class InterviewWorkflow:
     ) -> InterviewGraphState:
         interview = self._require_interview(state)
         analysis = self._require_analysis(state)
-        decision = self._decide_next_step(
-            analysis=analysis,
-            state=interview,
-        )
+        with logfire.span(
+            "interview node: decide next step",
+            interview_id=interview.interview_id,
+            question_number=interview.current_question_number,
+        ) as node_span:
+            decision = self._decide_next_step(
+                analysis=analysis,
+                state=interview,
+            )
+            node_span.set_attribute(
+                "decision_action",
+                decision.action,
+            )
+            node_span.set_attribute(
+                "next_difficulty",
+                decision.next_difficulty,
+            )
         return {"decision": decision}
 
     def _generate_next_question(
@@ -512,11 +554,27 @@ class InterviewWorkflow:
         interview = self._require_interview(state)
         analysis = self._require_analysis(state)
         decision = self._require_decision(state)
-        next_question = self._generate_adaptive_question(
-            state=interview,
-            analysis=analysis,
-            decision=decision,
-        )
+        with logfire.span(
+            "interview node: generate question",
+            interview_id=interview.interview_id,
+            next_question_number=(
+                interview.current_question_number + 1
+            ),
+            decision_action=decision.action,
+        ) as node_span:
+            next_question = self._generate_adaptive_question(
+                state=interview,
+                analysis=analysis,
+                decision=decision,
+            )
+            node_span.set_attribute(
+                "question_difficulty",
+                next_question.difficulty,
+            )
+            node_span.set_attribute(
+                "question_type",
+                next_question.question_type,
+            )
         return {"next_question": next_question}
 
     def _update_interview(
@@ -581,6 +639,23 @@ class InterviewWorkflow:
         return {
             "interview": _finish_interview_state(interview),
         }
+
+    def _invoke_graph(
+        self,
+        input_state: InterviewGraphState | None,
+        *,
+        interview_id: str,
+        operation: WorkflowOperation,
+    ) -> InterviewGraphState:
+        with logfire.span(
+            "interview workflow: {operation}",
+            operation=operation,
+            interview_id=interview_id,
+        ):
+            return self._graph.invoke(
+                input_state,
+                self._config(interview_id),
+            )
 
     def _get_snapshot(self, interview_id: str):
         snapshot = self._graph.get_state(self._config(interview_id))
