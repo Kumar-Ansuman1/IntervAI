@@ -24,6 +24,7 @@ T = TypeVar("T", bound=BaseModel)
 class LLMTask(str, Enum):
     RESUME_PARSING = "resume_parsing"
     QUESTION_GENERATION = "question_generation"
+    ANSWER_ANALYSIS = "answer_analysis"
 
 
 @dataclass(frozen=True, slots=True)
@@ -54,6 +55,13 @@ TASK_MODELS: dict[LLMTask, TaskModelConfig] = {
         primary_api_key_env="GOOGLE_API_KEY",
         primary_group="question-primary",
         fallback_group="question-fallback",
+    ),
+    LLMTask.ANSWER_ANALYSIS: TaskModelConfig(
+        env_prefix="ANSWER_ANALYSIS",
+        primary_model="gemini/gemini-3.1-flash-lite",
+        primary_api_key_env="GOOGLE_API_KEY",
+        primary_group="answer-primary",
+        fallback_group="answer-fallback",
     ),
 }
 
@@ -374,4 +382,3 @@ class LLMGateway:
 @lru_cache(maxsize=1)
 def get_llm_gateway() -> LLMGateway:
     return LLMGateway()
-
