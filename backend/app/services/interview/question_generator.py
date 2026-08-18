@@ -1,8 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 
 from backend.app.schemas.interview import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
-from backend.app.services.llm.gateway import get_llm_gateway
-from backend.app.services.llm.policies import LLMTask
+from backend.app.services.llm.gateway import LLMTask, get_llm_gateway
 
 #Maps InterviewDescion.action to AdaptiveQuestion.questiontype
 def _map_action_to_question_type(action: str) -> str:
@@ -519,3 +518,4 @@ def generate_initial_question(
         raise RuntimeError(
             f"Failed to generate initial question: {error}"
         ) from error
+
