@@ -10,10 +10,13 @@ load_dotenv()
 
 DEFAULT_RESUME_PRIMARY_MODEL = "gemini/gemini-3.5-flash"
 DEFAULT_RESUME_PRIMARY_API_KEY_ENV = "GOOGLE_API_KEY"
+DEFAULT_QUESTION_PRIMARY_MODEL = "gemini/gemini-3.1-flash-lite"
+DEFAULT_QUESTION_PRIMARY_API_KEY_ENV = "GOOGLE_API_KEY"
 
 
 class LLMTask(str, Enum):
     RESUME_PARSING = "resume_parsing"
+    QUESTION_GENERATION = "question_generation"
 
 
 class ModelPolicyConfigurationError(ValueError):
@@ -28,13 +31,16 @@ class ModelConfig:
 
 
 @dataclass(frozen=True, slots=True)
-class ResumeRoutingPolicy:
+class ModelRoutingPolicy:
     task: LLMTask
     primary: ModelConfig
     fallback: ModelConfig | None
     timeout_seconds: float | None
-    primary_group: str = "resume-primary"
-    fallback_group: str = "resume-fallback"
+    primary_group: str
+    fallback_group: str
+
+
+ResumeRoutingPolicy = ModelRoutingPolicy
 
 
 def _optional_env(variable_name: str, default: str | None = None) -> str | None:
@@ -70,8 +76,8 @@ def _model_config(
     )
 
 
-def _timeout_seconds() -> float | None:
-    configured_timeout = _optional_env("RESUME_MODEL_TIMEOUT_SECONDS")
+def _timeout_seconds(variable_name: str) -> float | None:
+    configured_timeout = _optional_env(variable_name)
     if configured_timeout is None:
         return None
 
@@ -79,40 +85,74 @@ def _timeout_seconds() -> float | None:
         timeout_seconds = float(configured_timeout)
     except ValueError as error:
         raise ModelPolicyConfigurationError(
-            "RESUME_MODEL_TIMEOUT_SECONDS must be a positive number."
+            f"{variable_name} must be a positive number."
         ) from error
 
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ModelPolicyConfigurationError(
-            "RESUME_MODEL_TIMEOUT_SECONDS must be a positive number."
+            f"{variable_name} must be a positive number."
         )
 
     return timeout_seconds
 
 
-def get_model_policy(task: LLMTask) -> ResumeRoutingPolicy:
-    if task is not LLMTask.RESUME_PARSING:
-        raise ModelPolicyConfigurationError(
-            f"No model policy is configured for task '{task.value}'."
-        )
-
+def _routing_policy(
+    *,
+    task: LLMTask,
+    variable_prefix: str,
+    default_model: str,
+    default_api_key_env: str,
+    primary_group: str,
+    fallback_group: str,
+) -> ModelRoutingPolicy:
     primary = _model_config(
-        "RESUME_PRIMARY_MODEL",
-        "RESUME_PRIMARY_API_BASE",
-        "RESUME_PRIMARY_API_KEY_ENV",
-        default_model=DEFAULT_RESUME_PRIMARY_MODEL,
-        default_api_key_env=DEFAULT_RESUME_PRIMARY_API_KEY_ENV,
+        f"{variable_prefix}_PRIMARY_MODEL",
+        f"{variable_prefix}_PRIMARY_API_BASE",
+        f"{variable_prefix}_PRIMARY_API_KEY_ENV",
+        default_model=default_model,
+        default_api_key_env=default_api_key_env,
     )
     if primary is None:
-        raise AssertionError("The resume primary model cannot be absent.")
+        raise AssertionError(f"The {task.value} primary model cannot be absent.")
 
-    return ResumeRoutingPolicy(
+    return ModelRoutingPolicy(
         task=task,
         primary=primary,
         fallback=_model_config(
-            "RESUME_FALLBACK_MODEL",
-            "RESUME_FALLBACK_API_BASE",
-            "RESUME_FALLBACK_API_KEY_ENV",
+            f"{variable_prefix}_FALLBACK_MODEL",
+            f"{variable_prefix}_FALLBACK_API_BASE",
+            f"{variable_prefix}_FALLBACK_API_KEY_ENV",
         ),
-        timeout_seconds=_timeout_seconds(),
+        timeout_seconds=_timeout_seconds(
+            f"{variable_prefix}_MODEL_TIMEOUT_SECONDS"
+        ),
+        primary_group=primary_group,
+        fallback_group=fallback_group,
     )
+
+
+def get_model_policy(task: LLMTask) -> ModelRoutingPolicy:
+    if task is LLMTask.RESUME_PARSING:
+        return _routing_policy(
+            task=task,
+            variable_prefix="RESUME",
+            default_model=DEFAULT_RESUME_PRIMARY_MODEL,
+            default_api_key_env=DEFAULT_RESUME_PRIMARY_API_KEY_ENV,
+            primary_group="resume-primary",
+            fallback_group="resume-fallback",
+        )
+
+    if task is LLMTask.QUESTION_GENERATION:
+        return _routing_policy(
+            task=task,
+            variable_prefix="QUESTION_GENERATION",
+            default_model=DEFAULT_QUESTION_PRIMARY_MODEL,
+            default_api_key_env=DEFAULT_QUESTION_PRIMARY_API_KEY_ENV,
+            primary_group="question-primary",
+            fallback_group="question-fallback",
+        )
+
+    raise ModelPolicyConfigurationError(
+        f"No model policy is configured for task '{task.value}'."
+    )
+
