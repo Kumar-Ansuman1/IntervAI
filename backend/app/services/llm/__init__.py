@@ -2,15 +2,12 @@ from backend.app.services.llm.gateway import (
     LLMGateway,
     LLMGatewayConfigurationError,
     LLMGatewayError,
+    LLMTask,
+    TASK_MODELS,
+    TaskModelConfig,
     get_llm_gateway,
     get_litellm_router,
-)
-from backend.app.services.llm.policies import (
-    LLMTask,
-    ModelConfig,
-    ModelPolicyConfigurationError,
-    ResumeRoutingPolicy,
-    get_model_policy,
+    get_task_model_config,
 )
 
 
@@ -19,10 +16,10 @@ __all__ = [
     "LLMGatewayConfigurationError",
     "LLMGatewayError",
     "LLMTask",
-    "ModelConfig",
-    "ModelPolicyConfigurationError",
-    "ResumeRoutingPolicy",
+    "TASK_MODELS",
+    "TaskModelConfig",
     "get_llm_gateway",
     "get_litellm_router",
-    "get_model_policy",
+    "get_task_model_config",
 ]
+
