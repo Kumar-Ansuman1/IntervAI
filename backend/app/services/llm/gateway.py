@@ -2,20 +2,18 @@ import logging
 import os
 from collections.abc import Callable, Mapping
 from functools import lru_cache
-from typing import Any, Protocol, TypeVar
+from typing import TypeVar
 
 import litellm
 import logfire
 from litellm import Router
 from litellm.exceptions import LITELLM_EXCEPTION_TYPES
-from litellm.types.router import (
-    RouterRateLimitError,
-    RouterRateLimitErrorBasic,
-)
+from litellm.types.router import RouterRateLimitError, RouterRateLimitErrorBasic
 from pydantic import BaseModel, ValidationError
 
 from backend.app.services.llm.policies import (
     LLMTask,
+    ModelConfig,
     ModelPolicyConfigurationError,
     ResumeRoutingPolicy,
     get_model_policy,
@@ -23,12 +21,6 @@ from backend.app.services.llm.policies import (
 
 
 T = TypeVar("T", bound=BaseModel)
-PolicyLoader = Callable[[LLMTask], ResumeRoutingPolicy]
-
-_LITELLM_REQUEST_ERRORS = tuple(LITELLM_EXCEPTION_TYPES) + (
-    RouterRateLimitError,
-    RouterRateLimitErrorBasic,
-)
 
 
 class LLMGatewayError(RuntimeError):
@@ -40,52 +32,35 @@ class LLMGatewayConfigurationError(ValueError):
 
 
 class _StructuredResponseError(ValueError):
-    """Internal marker for a missing or unsupported response body."""
+    """Raised when LiteLLM returns no usable structured content."""
 
 
-class CompletionRouter(Protocol):
-    def completion(
-        self,
-        model: str,
-        messages: list[dict[str, str]],
-        **kwargs: Any,
-    ) -> object: ...
+_REQUEST_ERRORS = tuple(LITELLM_EXCEPTION_TYPES) + (
+    RouterRateLimitError,
+    RouterRateLimitErrorBasic,
+    ValidationError,
+    _StructuredResponseError,
+)
 
 
-def _provider_name(model: str) -> str:
-    return model.partition("/")[0].lower()
+def _deployment(group: str, config: ModelConfig) -> dict[str, object]:
+    params: dict[str, object] = {"model": config.model}
 
+    if config.api_base:
+        params["api_base"] = config.api_base
 
-def _google_api_key(model: str) -> str | None:
-    if _provider_name(model) != "gemini":
-        return None
+    if config.api_key_env:
+        api_key = os.getenv(config.api_key_env, "").strip()
+        if not api_key:
+            raise LLMGatewayConfigurationError(
+                f"{config.api_key_env} is required for the configured model."
+            )
+        params["api_key"] = api_key
 
-    api_key = os.getenv("GOOGLE_API_KEY", "").strip()
-    if not api_key:
-        raise LLMGatewayConfigurationError(
-            "GOOGLE_API_KEY is required for the configured Gemini model."
-        )
-
-    return api_key
-
-
-def _deployment(model_group: str, model: str) -> dict[str, object]:
-    litellm_params: dict[str, object] = {"model": model}
-    google_api_key = _google_api_key(model)
-
-    if google_api_key is not None:
-        litellm_params["api_key"] = google_api_key
-
-    return {
-        "model_name": model_group,
-        "litellm_params": litellm_params,
-    }
+    return {"model_name": group, "litellm_params": params}
 
 
 def _configure_litellm_privacy() -> None:
-    # LiteLLM's Router error logger can include invalid structured output in
-    # its exception text even when verbose mode is disabled. Manual Logfire
-    # spans below retain safe failure metadata, so suppress that raw logger.
     litellm.turn_off_message_logging = True
     litellm.redact_messages_in_exceptions = True
     litellm.redact_user_api_key_info = True
@@ -96,10 +71,8 @@ def _configure_litellm_privacy() -> None:
 def get_litellm_router() -> Router:
     _configure_litellm_privacy()
     policy = get_model_policy(LLMTask.RESUME_PARSING)
-    model_list = [
-        _deployment(policy.primary_group, policy.primary_model),
-    ]
-    router_kwargs: dict[str, object] = {
+    model_list = [_deployment(policy.primary_group, policy.primary)]
+    router_options: dict[str, object] = {
         "model_list": model_list,
         "num_retries": 0,
         "max_fallbacks": 1,
@@ -107,115 +80,65 @@ def get_litellm_router() -> Router:
         "set_verbose": False,
     }
 
-    if policy.fallback_model is not None:
-        model_list.append(
-            _deployment(policy.fallback_group, policy.fallback_model)
-        )
-        router_kwargs["fallbacks"] = [
-            {
-                policy.primary_group: [policy.fallback_group],
-            }
+    if policy.fallback:
+        model_list.append(_deployment(policy.fallback_group, policy.fallback))
+        router_options["fallbacks"] = [
+            {policy.primary_group: [policy.fallback_group]}
         ]
 
     if policy.timeout_seconds is not None:
-        router_kwargs["timeout"] = policy.timeout_seconds
+        router_options["timeout"] = policy.timeout_seconds
 
-    return Router(**router_kwargs)
-
-
-def _value(container: object, name: str) -> object | None:
-    if isinstance(container, Mapping):
-        return container.get(name)
-    return getattr(container, name, None)
+    return Router(**router_options)
 
 
-def _validated_result(
-    response: object,
-    response_model: type[T],
-) -> T:
-    choices = _value(response, "choices")
-    if not isinstance(choices, (list, tuple)) or not choices:
-        raise _StructuredResponseError(
-            "The model response did not contain a completion choice."
-        )
+def _validate_response(response: object, response_model: type[T]) -> T:
+    try:
+        content = response.choices[0].message.content  # type: ignore[attr-defined]
+    except (AttributeError, IndexError, TypeError) as error:
+        raise _StructuredResponseError from error
 
-    message = _value(choices[0], "message")
-    if message is None:
-        raise _StructuredResponseError(
-            "The model response did not contain a completion message."
-        )
-
-    content = _value(message, "content")
-    if isinstance(content, str):
-        if not content.strip():
-            raise _StructuredResponseError(
-                "The model response content was empty."
-            )
+    if isinstance(content, str) and content.strip():
         return response_model.model_validate_json(content)
-
     if isinstance(content, Mapping):
         return response_model.model_validate(dict(content))
 
-    raise _StructuredResponseError(
-        "The model response content had an unsupported type."
+    raise _StructuredResponseError
+
+
+def _routing_result(
+    response: object,
+    policy: ResumeRoutingPolicy,
+) -> tuple[str | None, bool]:
+    metadata = getattr(response, "_hidden_params", {})
+    metadata = metadata if isinstance(metadata, Mapping) else {}
+    final_model = metadata.get("litellm_model_name") or getattr(
+        response,
+        "model",
+        None,
     )
 
+    headers = metadata.get("additional_headers", {})
+    model_group = (
+        headers.get("x-litellm-model-group")
+        if isinstance(headers, Mapping)
+        else None
+    )
+    fallback_used = model_group == policy.fallback_group
 
-def _final_model(response: object) -> str | None:
-    hidden_params = getattr(response, "_hidden_params", None)
-    if isinstance(hidden_params, Mapping):
-        litellm_model_name = hidden_params.get("litellm_model_name")
-        if isinstance(litellm_model_name, str) and litellm_model_name:
-            return litellm_model_name
+    if model_group is None and policy.fallback and isinstance(final_model, str):
+        fallback_name = policy.fallback.model.partition("/")[2]
+        fallback_used = final_model in {policy.fallback.model, fallback_name}
 
-    model = _value(response, "model")
-    if isinstance(model, str) and model:
-        return model
-
-    return None
-
-
-def _final_model_group(response: object) -> str | None:
-    hidden_params = getattr(response, "_hidden_params", None)
-    if not isinstance(hidden_params, Mapping):
-        return None
-
-    additional_headers = hidden_params.get("additional_headers")
-    if not isinstance(additional_headers, Mapping):
-        return None
-
-    model_group = additional_headers.get("x-litellm-model-group")
-    if isinstance(model_group, str) and model_group:
-        return model_group
-
-    return None
-
-
-def _model_identifiers_match(actual: str, configured: str) -> bool:
-    configured_name = configured.partition("/")[2]
-    return actual == configured or actual == configured_name
-
-
-def _fallback_used(
-    final_model_group: str | None,
-    final_model: str | None,
-    policy: ResumeRoutingPolicy,
-) -> bool:
-    if final_model_group is not None:
-        return final_model_group == policy.fallback_group
-
-    if final_model is None or policy.fallback_model is None:
-        return False
-
-    return _model_identifiers_match(final_model, policy.fallback_model)
+    return final_model if isinstance(final_model, str) else None, fallback_used
 
 
 class LLMGateway:
     def __init__(
         self,
         *,
-        router: CompletionRouter | None = None,
-        policy_loader: PolicyLoader = get_model_policy,
+        router: Router | None = None,
+        policy_loader: Callable[[LLMTask], ResumeRoutingPolicy] = get_model_policy,
     ) -> None:
         self._router = router if router is not None else get_litellm_router()
         self._policy_loader = policy_loader
@@ -233,21 +156,14 @@ class LLMGateway:
             )
 
         policy = self._policy_loader(task)
-        if policy.task is not task:
-            raise ModelPolicyConfigurationError(
-                "The loaded model policy does not match the requested task."
-            )
-
-        messages = [{"role": "user", "content": prompt}]
-        request_error: Exception | None = None
-        programming_error: Exception | None = None
-        validated_result: T | None = None
+        result: T | None = None
+        request_failed = False
 
         with logfire.span(
             "litellm gateway: structured request",
             task=task.value,
-            primary_model=policy.primary_model,
-            fallback_configured=policy.fallback_model is not None,
+            primary_model=policy.primary.model,
+            fallback_configured=policy.fallback is not None,
             timeout_configured=policy.timeout_seconds is not None,
             response_model=response_model.__name__,
             status="started",
@@ -256,62 +172,32 @@ class LLMGateway:
             try:
                 response = self._router.completion(
                     model=policy.primary_group,
-                    messages=messages,
+                    messages=[{"role": "user", "content": prompt}],
                     response_format=response_model,
                     enable_json_schema_validation=True,
                     turn_off_message_logging=True,
                     num_retries=0,
                 )
-                validated_result = _validated_result(
-                    response,
-                    response_model,
-                )
-            except Exception as error:
+                result = _validate_response(response, response_model)
+            except _REQUEST_ERRORS as error:
+                request_failed = True
                 span.set_attribute("status", "error")
                 span.set_attribute("error_type", type(error).__name__)
-
-                if isinstance(
-                    error,
-                    _LITELLM_REQUEST_ERRORS
-                    + (ValidationError, _StructuredResponseError),
-                ):
-                    request_error = error
-                else:
-                    programming_error = error
             else:
-                final_model = _final_model(response)
-                final_model_group = _final_model_group(response)
-                fallback_used = _fallback_used(
-                    final_model_group,
-                    final_model,
-                    policy,
-                )
+                final_model, fallback_used = _routing_result(response, policy)
                 span.set_attribute("status", "success")
                 span.set_attribute("fallback_used", fallback_used)
-                span.set_attribute(
-                    "response_type",
-                    type(validated_result).__name__,
-                )
-                if final_model is not None:
+                span.set_attribute("response_type", type(result).__name__)
+                if final_model:
                     span.set_attribute("final_model", final_model)
 
-        if programming_error is not None:
-            raise programming_error
+        if request_failed:
+            raise LLMGatewayError("Resume parsing model request failed.") from None
 
-        if request_error is not None:
-            # Suppress the provider exception context because it can contain
-            # raw model output or request payloads that outer Logfire spans
-            # must not capture.
-            raise LLMGatewayError(
-                "Resume parsing model request failed."
-            ) from None
+        if result is None:
+            raise AssertionError("Structured response validation produced no result.")
 
-        if validated_result is None:
-            raise AssertionError(
-                "Structured response validation produced no result."
-            )
-
-        return validated_result
+        return result
 
 
 @lru_cache(maxsize=1)

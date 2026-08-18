@@ -19,6 +19,7 @@ from backend.app.services.llm.gateway import (
 from backend.app.services.llm.policies import (
     DEFAULT_RESUME_PRIMARY_MODEL,
     LLMTask,
+    ModelConfig,
     ModelPolicyConfigurationError,
     ResumeRoutingPolicy,
     get_model_policy,
@@ -42,8 +43,10 @@ def _policy(
 ) -> ResumeRoutingPolicy:
     return ResumeRoutingPolicy(
         task=LLMTask.RESUME_PARSING,
-        primary_model="gemini/primary-model",
-        fallback_model=fallback_model,
+        primary=ModelConfig(model="gemini/primary-model"),
+        fallback=(
+            ModelConfig(model=fallback_model) if fallback_model else None
+        ),
         timeout_seconds=timeout_seconds,
     )
 
@@ -164,13 +167,19 @@ def test_resume_policy_defaults_to_provider_prefixed_primary(
 ) -> None:
     monkeypatch.delenv("RESUME_PRIMARY_MODEL", raising=False)
     monkeypatch.delenv("RESUME_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("RESUME_PRIMARY_API_BASE", raising=False)
+    monkeypatch.delenv("RESUME_PRIMARY_API_KEY_ENV", raising=False)
+    monkeypatch.delenv("RESUME_FALLBACK_API_BASE", raising=False)
+    monkeypatch.delenv("RESUME_FALLBACK_API_KEY_ENV", raising=False)
     monkeypatch.delenv("RESUME_MODEL_TIMEOUT_SECONDS", raising=False)
 
     policy = get_model_policy(LLMTask.RESUME_PARSING)
 
-    assert policy.primary_model == DEFAULT_RESUME_PRIMARY_MODEL
-    assert policy.primary_model == "gemini/gemini-3.5-flash"
-    assert policy.fallback_model is None
+    assert policy.primary.model == DEFAULT_RESUME_PRIMARY_MODEL
+    assert policy.primary.model == "gemini/gemini-3.5-flash"
+    assert policy.primary.api_base is None
+    assert policy.primary.api_key_env == "GOOGLE_API_KEY"
+    assert policy.fallback is None
     assert policy.timeout_seconds is None
     assert policy.primary_group == "resume-primary"
     assert policy.fallback_group == "resume-fallback"
@@ -181,7 +190,7 @@ def test_empty_fallback_is_absent(monkeypatch) -> None:
 
     policy = get_model_policy(LLMTask.RESUME_PARSING)
 
-    assert policy.fallback_model is None
+    assert policy.fallback is None
 
 
 @pytest.mark.parametrize(
@@ -230,7 +239,11 @@ def test_router_factory_builds_only_primary_without_fallback(
 
     monkeypatch.setenv("GOOGLE_API_KEY", api_key)
     monkeypatch.delenv("RESUME_PRIMARY_MODEL", raising=False)
+    monkeypatch.delenv("RESUME_PRIMARY_API_BASE", raising=False)
+    monkeypatch.delenv("RESUME_PRIMARY_API_KEY_ENV", raising=False)
     monkeypatch.setenv("RESUME_FALLBACK_MODEL", "")
+    monkeypatch.setenv("RESUME_FALLBACK_API_BASE", "")
+    monkeypatch.setenv("RESUME_FALLBACK_API_KEY_ENV", "")
     monkeypatch.delenv("RESUME_MODEL_TIMEOUT_SECONDS", raising=False)
     monkeypatch.setattr(gateway_module, "Router", fake_router)
 
@@ -274,7 +287,12 @@ def test_router_factory_adds_optional_fallback_and_timeout(
         return sentinel_router
 
     monkeypatch.setenv("GOOGLE_API_KEY", "private-google-key")
-    monkeypatch.setenv("RESUME_FALLBACK_MODEL", "anthropic/test-model")
+    monkeypatch.setenv("RESUME_FALLBACK_MODEL", "ollama_chat/test-model")
+    monkeypatch.setenv(
+        "RESUME_FALLBACK_API_BASE",
+        "http://localhost:11434",
+    )
+    monkeypatch.setenv("RESUME_FALLBACK_API_KEY_ENV", "")
     monkeypatch.setenv("RESUME_MODEL_TIMEOUT_SECONDS", "45.5")
     monkeypatch.setattr(gateway_module, "Router", fake_router)
 
@@ -295,21 +313,57 @@ def test_router_factory_adds_optional_fallback_and_timeout(
         },
         {
             "model_name": "resume-fallback",
-            "litellm_params": {"model": "anthropic/test-model"},
+            "litellm_params": {
+                "model": "ollama_chat/test-model",
+                "api_base": "http://localhost:11434",
+            },
         },
     ]
 
 
-def test_router_factory_requires_google_key_for_gemini(
+def test_router_factory_uses_generic_credential_variable(
     monkeypatch,
 ) -> None:
-    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.setenv("RESUME_PRIMARY_MODEL", "custom/test-model")
+    monkeypatch.setenv("RESUME_PRIMARY_API_KEY_ENV", "CUSTOM_MODEL_KEY")
+    monkeypatch.delenv("CUSTOM_MODEL_KEY", raising=False)
 
     with pytest.raises(
         LLMGatewayConfigurationError,
-        match="GOOGLE_API_KEY is required",
+        match="CUSTOM_MODEL_KEY is required",
     ):
         gateway_module.get_litellm_router()
+
+
+def test_router_factory_supports_local_model_without_api_key(
+    monkeypatch,
+) -> None:
+    captured_kwargs: list[dict[str, object]] = []
+
+    def fake_router(**kwargs: object) -> object:
+        captured_kwargs.append(kwargs)
+        return object()
+
+    monkeypatch.setenv("RESUME_PRIMARY_MODEL", "ollama_chat/test-model")
+    monkeypatch.setenv(
+        "RESUME_PRIMARY_API_BASE",
+        "http://localhost:11434",
+    )
+    monkeypatch.setenv("RESUME_PRIMARY_API_KEY_ENV", "")
+    monkeypatch.setenv("RESUME_FALLBACK_MODEL", "")
+    monkeypatch.setattr(gateway_module, "Router", fake_router)
+
+    gateway_module.get_litellm_router()
+
+    assert captured_kwargs[0]["model_list"] == [
+        {
+            "model_name": "resume-primary",
+            "litellm_params": {
+                "model": "ollama_chat/test-model",
+                "api_base": "http://localhost:11434",
+            },
+        }
+    ]
 
 
 def test_structured_request_uses_litellm_messages_and_validation() -> None:
@@ -433,8 +487,8 @@ def test_litellm_router_falls_back_for_invalid_structured_output(
         router=router,
         policy_loader=lambda _task: ResumeRoutingPolicy(
             task=LLMTask.RESUME_PARSING,
-            primary_model="openai/gpt-4o-mini",
-            fallback_model="openai/gpt-4o",
+            primary=ModelConfig(model="openai/gpt-4o-mini"),
+            fallback=ModelConfig(model="openai/gpt-4o"),
             timeout_seconds=None,
         ),
     )
@@ -614,8 +668,8 @@ def test_litellm_failure_logging_does_not_expose_model_content(
         router=router,
         policy_loader=lambda _task: ResumeRoutingPolicy(
             task=LLMTask.RESUME_PARSING,
-            primary_model="openai/gpt-4o-mini",
-            fallback_model="openai/gpt-4o",
+            primary=ModelConfig(model="openai/gpt-4o-mini"),
+            fallback=ModelConfig(model="openai/gpt-4o"),
             timeout_seconds=None,
         ),
     )

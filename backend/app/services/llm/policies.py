@@ -9,6 +9,7 @@ from dotenv import load_dotenv
 load_dotenv()
 
 DEFAULT_RESUME_PRIMARY_MODEL = "gemini/gemini-3.5-flash"
+DEFAULT_RESUME_PRIMARY_API_KEY_ENV = "GOOGLE_API_KEY"
 
 
 class LLMTask(str, Enum):
@@ -20,48 +21,58 @@ class ModelPolicyConfigurationError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelConfig:
+    model: str
+    api_base: str | None = None
+    api_key_env: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ResumeRoutingPolicy:
     task: LLMTask
-    primary_model: str
-    fallback_model: str | None
+    primary: ModelConfig
+    fallback: ModelConfig | None
     timeout_seconds: float | None
     primary_group: str = "resume-primary"
     fallback_group: str = "resume-fallback"
 
 
-def _model_identifier(
-    variable_name: str,
+def _optional_env(variable_name: str, default: str | None = None) -> str | None:
+    value = os.getenv(variable_name, default)
+    return value.strip() if value and value.strip() else None
+
+
+def _model_config(
+    model_variable: str,
+    api_base_variable: str,
+    api_key_env_variable: str,
     *,
-    default: str | None = None,
-    optional: bool = False,
-) -> str | None:
-    configured_model = os.getenv(variable_name)
-
-    if configured_model is None:
-        model = default
-    else:
-        model = configured_model.strip()
-
-    if not model:
-        if optional:
-            return None
-        raise ModelPolicyConfigurationError(
-            f"{variable_name} must contain a LiteLLM provider/model identifier."
-        )
+    default_model: str | None = None,
+    default_api_key_env: str | None = None,
+) -> ModelConfig | None:
+    model = _optional_env(model_variable, default_model)
+    if model is None:
+        return None
 
     provider, separator, model_name = model.partition("/")
     if not separator or not provider or not model_name:
         raise ModelPolicyConfigurationError(
-            f"{variable_name} must use LiteLLM provider/model syntax."
+            f"{model_variable} must use LiteLLM provider/model syntax."
         )
 
-    return model
+    return ModelConfig(
+        model=model,
+        api_base=_optional_env(api_base_variable),
+        api_key_env=_optional_env(
+            api_key_env_variable,
+            default_api_key_env,
+        ),
+    )
 
 
-def _resume_timeout_seconds() -> float | None:
-    configured_timeout = os.getenv("RESUME_MODEL_TIMEOUT_SECONDS")
-
-    if configured_timeout is None or not configured_timeout.strip():
+def _timeout_seconds() -> float | None:
+    configured_timeout = _optional_env("RESUME_MODEL_TIMEOUT_SECONDS")
+    if configured_timeout is None:
         return None
 
     try:
@@ -85,19 +96,23 @@ def get_model_policy(task: LLMTask) -> ResumeRoutingPolicy:
             f"No model policy is configured for task '{task.value}'."
         )
 
-    primary_model = _model_identifier(
+    primary = _model_config(
         "RESUME_PRIMARY_MODEL",
-        default=DEFAULT_RESUME_PRIMARY_MODEL,
+        "RESUME_PRIMARY_API_BASE",
+        "RESUME_PRIMARY_API_KEY_ENV",
+        default_model=DEFAULT_RESUME_PRIMARY_MODEL,
+        default_api_key_env=DEFAULT_RESUME_PRIMARY_API_KEY_ENV,
     )
-    if primary_model is None:
+    if primary is None:
         raise AssertionError("The resume primary model cannot be absent.")
 
     return ResumeRoutingPolicy(
         task=task,
-        primary_model=primary_model,
-        fallback_model=_model_identifier(
+        primary=primary,
+        fallback=_model_config(
             "RESUME_FALLBACK_MODEL",
-            optional=True,
+            "RESUME_FALLBACK_API_BASE",
+            "RESUME_FALLBACK_API_KEY_ENV",
         ),
-        timeout_seconds=_resume_timeout_seconds(),
+        timeout_seconds=_timeout_seconds(),
     )

@@ -7,6 +7,7 @@ from backend.app.services.llm.gateway import (
 )
 from backend.app.services.llm.policies import (
     LLMTask,
+    ModelConfig,
     ModelPolicyConfigurationError,
     ResumeRoutingPolicy,
     get_model_policy,
@@ -18,6 +19,7 @@ __all__ = [
     "LLMGatewayConfigurationError",
     "LLMGatewayError",
     "LLMTask",
+    "ModelConfig",
     "ModelPolicyConfigurationError",
     "ResumeRoutingPolicy",
     "get_llm_gateway",
