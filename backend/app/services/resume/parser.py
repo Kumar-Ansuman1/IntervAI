@@ -5,8 +5,11 @@ from langchain_core.prompts import PromptTemplate
 from pypdf import PdfReader
 
 from backend.app.schemas.resume import ResumeData
-from backend.app.services.llm.gateway import LLMGateway, get_llm_gateway
-from backend.app.services.llm.policies import LLMTask
+from backend.app.services.llm.gateway import (
+    LLMGateway,
+    LLMTask,
+    get_llm_gateway,
+)
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
@@ -66,3 +69,4 @@ def extract_resume_details(
         span.set_attribute("response_type", type(result).__name__)
 
     return result
+
