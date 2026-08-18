@@ -1,18 +1,7 @@
-import os
-
-from dotenv import load_dotenv
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 
 from backend.app.schemas.interview import AnswerAnalysis
-
-load_dotenv()
-
-def _create_answer_analyzer():
-
-    model = ChatGoogleGenerativeAI(model="gemini-3.1-flash-lite",temperature=0)
-
-    return model.with_structured_output(AnswerAnalysis)
+from backend.app.services.llm.gateway import LLMTask, get_llm_gateway
 
 
 def _create_analysis_prompt() -> ChatPromptTemplate:
@@ -143,12 +132,9 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
 
     try:
 
-        analyzer = _create_answer_analyzer()
         prompt = _create_analysis_prompt()
 
-        chain = prompt | analyzer
-
-        result = chain.invoke(
+        prompt_text = prompt.invoke(
             {
                 "question": question,
                 "candidate_answer": candidate_answer,
@@ -156,11 +142,18 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
                 "topic": topic,
                 "difficulty": difficulty
             }
+        ).to_string()
+
+        result = get_llm_gateway().generate_structured(
+            task=LLMTask.ANSWER_ANALYSIS,
+            prompt=prompt_text,
+            response_model=AnswerAnalysis,
+            temperature=0,
         )
 
         if not isinstance(result, AnswerAnalysis):
             raise TypeError(
-                "Gemini did not return a valid AnswerAnalysis object."
+                "Model did not return a valid AnswerAnalysis object."
             )
 
         return result
@@ -169,6 +162,7 @@ def analyze_answer(question: str, candidate_answer: str, skill: str, topic: str,
         raise RuntimeError(
             f"Failed to analyze candidate answer: {error}"
         ) from error
+
 
 def calculate_overall_score(analysis: AnswerAnalysis) -> float:
     """
