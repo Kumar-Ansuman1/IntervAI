@@ -36,8 +36,8 @@ class ModelRoutingPolicy:
     primary: ModelConfig
     fallback: ModelConfig | None
     timeout_seconds: float | None
-    primary_group: str
-    fallback_group: str
+    primary_group: str = "resume-primary"
+    fallback_group: str = "resume-fallback"
 
 
 ResumeRoutingPolicy = ModelRoutingPolicy
@@ -155,4 +155,3 @@ def get_model_policy(task: LLMTask) -> ModelRoutingPolicy:
     raise ModelPolicyConfigurationError(
         f"No model policy is configured for task '{task.value}'."
     )
-
