@@ -5,6 +5,7 @@ pydantic
 langgraph
 langchain-core
 langchain-google-genai
+litellm
 google-genai
 python-dotenv
 pypdf
