@@ -15,14 +15,10 @@ from backend.app.services.llm.gateway import (
     LLMGateway,
     LLMGatewayConfigurationError,
     LLMGatewayError,
-)
-from backend.app.services.llm.policies import (
-    DEFAULT_RESUME_PRIMARY_MODEL,
     LLMTask,
-    ModelConfig,
-    ModelPolicyConfigurationError,
-    ResumeRoutingPolicy,
-    get_model_policy,
+    TASK_MODELS,
+    TaskModelConfig,
+    get_task_model_config,
 )
 
 
@@ -40,14 +36,14 @@ def _policy(
     *,
     fallback_model: str | None = None,
     timeout_seconds: float | None = None,
-) -> ResumeRoutingPolicy:
-    return ResumeRoutingPolicy(
-        task=LLMTask.RESUME_PARSING,
-        primary=ModelConfig(model="gemini/primary-model"),
-        fallback=(
-            ModelConfig(model=fallback_model) if fallback_model else None
-        ),
+) -> TaskModelConfig:
+    return TaskModelConfig(
+        env_prefix="TEST_RESUME",
+        primary_model="gemini/primary-model",
+        fallback_model=fallback_model,
         timeout_seconds=timeout_seconds,
+        primary_group="resume-primary",
+        fallback_group="resume-fallback",
     )
 
 
@@ -173,13 +169,13 @@ def test_resume_policy_defaults_to_provider_prefixed_primary(
     monkeypatch.delenv("RESUME_FALLBACK_API_KEY_ENV", raising=False)
     monkeypatch.delenv("RESUME_MODEL_TIMEOUT_SECONDS", raising=False)
 
-    policy = get_model_policy(LLMTask.RESUME_PARSING)
+    policy = get_task_model_config(LLMTask.RESUME_PARSING)
 
-    assert policy.primary.model == DEFAULT_RESUME_PRIMARY_MODEL
-    assert policy.primary.model == "gemini/gemini-3.5-flash"
-    assert policy.primary.api_base is None
-    assert policy.primary.api_key_env == "GOOGLE_API_KEY"
-    assert policy.fallback is None
+    assert policy.primary_model == TASK_MODELS[LLMTask.RESUME_PARSING].primary_model
+    assert policy.primary_model == "gemini/gemini-3.5-flash"
+    assert policy.primary_api_base is None
+    assert policy.primary_api_key_env == "GOOGLE_API_KEY"
+    assert policy.fallback_model is None
     assert policy.timeout_seconds is None
     assert policy.primary_group == "resume-primary"
     assert policy.fallback_group == "resume-fallback"
@@ -188,9 +184,9 @@ def test_resume_policy_defaults_to_provider_prefixed_primary(
 def test_empty_fallback_is_absent(monkeypatch) -> None:
     monkeypatch.setenv("RESUME_FALLBACK_MODEL", "   ")
 
-    policy = get_model_policy(LLMTask.RESUME_PARSING)
+    policy = get_task_model_config(LLMTask.RESUME_PARSING)
 
-    assert policy.fallback is None
+    assert policy.fallback_model is None
 
 
 @pytest.mark.parametrize(
@@ -207,10 +203,10 @@ def test_invalid_timeout_is_rejected(
     )
 
     with pytest.raises(
-        ModelPolicyConfigurationError,
+        LLMGatewayConfigurationError,
         match="must be a positive number",
     ):
-        get_model_policy(LLMTask.RESUME_PARSING)
+        get_task_model_config(LLMTask.RESUME_PARSING)
 
 
 def test_model_identifiers_require_litellm_provider_syntax(
@@ -219,10 +215,10 @@ def test_model_identifiers_require_litellm_provider_syntax(
     monkeypatch.setenv("RESUME_FALLBACK_MODEL", "unprefixed-model")
 
     with pytest.raises(
-        ModelPolicyConfigurationError,
+        LLMGatewayConfigurationError,
         match="provider/model syntax",
     ):
-        get_model_policy(LLMTask.RESUME_PARSING)
+        get_task_model_config(LLMTask.RESUME_PARSING)
 
 
 def test_router_factory_builds_only_primary_without_fallback(
@@ -371,7 +367,7 @@ def test_structured_request_uses_litellm_messages_and_validation() -> None:
     router = FakeRouter(_response(expected.model_dump_json()))
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     result = gateway.generate_structured(
@@ -401,7 +397,7 @@ def test_dictionary_content_is_still_locally_validated() -> None:
     router = FakeRouter(_response(expected.model_dump()))
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     result = gateway.generate_structured(
@@ -425,7 +421,7 @@ def test_router_owned_fallback_is_bounded_to_two_attempts() -> None:
     )
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(
+        config_loader=lambda _task: _policy(
             fallback_model="anthropic/fallback-model"
         ),
     )
@@ -485,11 +481,13 @@ def test_litellm_router_falls_back_for_invalid_structured_output(
     )
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: ResumeRoutingPolicy(
-            task=LLMTask.RESUME_PARSING,
-            primary=ModelConfig(model="openai/gpt-4o-mini"),
-            fallback=ModelConfig(model="openai/gpt-4o"),
+        config_loader=lambda _task: TaskModelConfig(
+            env_prefix="TEST_RESUME",
+            primary_model="openai/gpt-4o-mini",
+            fallback_model="openai/gpt-4o",
             timeout_seconds=None,
+            primary_group="resume-primary",
+            fallback_group="resume-fallback",
         ),
     )
 
@@ -514,7 +512,7 @@ def test_primary_and_fallback_failure_raise_safe_error() -> None:
     )
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(
+        config_loader=lambda _task: _policy(
             fallback_model="anthropic/fallback-model"
         ),
     )
@@ -539,7 +537,7 @@ def test_no_fallback_makes_only_primary_attempt() -> None:
     router = RouterOwnedFallback(fallback_configured=False)
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     with pytest.raises(LLMGatewayError):
@@ -560,7 +558,7 @@ def test_empty_or_invalid_content_raises_safe_error(
     router = FakeRouter(_response(content))
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     with pytest.raises(LLMGatewayError) as error_info:
@@ -578,7 +576,7 @@ def test_invalid_dictionary_is_never_returned() -> None:
     router = FakeRouter(_response({"name": "Incomplete"}))
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     with pytest.raises(LLMGatewayError):
@@ -608,7 +606,7 @@ def test_gateway_logfire_span_uses_only_privacy_safe_attributes(
     router = FakeRouter(_response(private_result.model_dump_json()))
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: _policy(),
+        config_loader=lambda _task: _policy(),
     )
 
     gateway.generate_structured(
@@ -666,11 +664,13 @@ def test_litellm_failure_logging_does_not_expose_model_content(
     )
     gateway = LLMGateway(
         router=router,
-        policy_loader=lambda _task: ResumeRoutingPolicy(
-            task=LLMTask.RESUME_PARSING,
-            primary=ModelConfig(model="openai/gpt-4o-mini"),
-            fallback=ModelConfig(model="openai/gpt-4o"),
+        config_loader=lambda _task: TaskModelConfig(
+            env_prefix="TEST_RESUME",
+            primary_model="openai/gpt-4o-mini",
+            fallback_model="openai/gpt-4o",
             timeout_seconds=None,
+            primary_group="resume-primary",
+            fallback_group="resume-fallback",
         ),
     )
 
@@ -708,3 +708,4 @@ def test_gateway_factory_reuses_router_and_gateway(monkeypatch) -> None:
 
     assert first is second
     assert router_calls == 1
+
