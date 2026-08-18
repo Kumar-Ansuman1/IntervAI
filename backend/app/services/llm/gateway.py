@@ -14,8 +14,7 @@ from pydantic import BaseModel, ValidationError
 from backend.app.services.llm.policies import (
     LLMTask,
     ModelConfig,
-    ModelPolicyConfigurationError,
-    ResumeRoutingPolicy,
+    ModelRoutingPolicy,
     get_model_policy,
 )
 
@@ -67,10 +66,12 @@ def _configure_litellm_privacy() -> None:
     logging.getLogger("LiteLLM Router").disabled = True
 
 
-@lru_cache(maxsize=1)
-def get_litellm_router() -> Router:
+@lru_cache(maxsize=len(LLMTask))
+def get_litellm_router(
+    task: LLMTask = LLMTask.RESUME_PARSING,
+) -> Router:
     _configure_litellm_privacy()
-    policy = get_model_policy(LLMTask.RESUME_PARSING)
+    policy = get_model_policy(task)
     model_list = [_deployment(policy.primary_group, policy.primary)]
     router_options: dict[str, object] = {
         "model_list": model_list,
@@ -108,7 +109,7 @@ def _validate_response(response: object, response_model: type[T]) -> T:
 
 def _routing_result(
     response: object,
-    policy: ResumeRoutingPolicy,
+    policy: ModelRoutingPolicy,
 ) -> tuple[str | None, bool]:
     metadata = getattr(response, "_hidden_params", {})
     metadata = metadata if isinstance(metadata, Mapping) else {}
@@ -138,8 +139,9 @@ class LLMGateway:
         self,
         *,
         router: Router | None = None,
-        policy_loader: Callable[[LLMTask], ResumeRoutingPolicy] = get_model_policy,
+        policy_loader: Callable[[LLMTask], ModelRoutingPolicy] = get_model_policy,
     ) -> None:
+        self._use_task_routers = router is None
         self._router = router if router is not None else get_litellm_router()
         self._policy_loader = policy_loader
 
@@ -149,13 +151,17 @@ class LLMGateway:
         task: LLMTask,
         prompt: str,
         response_model: type[T],
+        temperature: float | None = None,
     ) -> T:
-        if task is not LLMTask.RESUME_PARSING:
-            raise ModelPolicyConfigurationError(
-                f"No model policy is configured for task '{task.value}'."
-            )
-
         policy = self._policy_loader(task)
+        router = (
+            get_litellm_router(task)
+            if (
+                self._use_task_routers
+                and task is not LLMTask.RESUME_PARSING
+            )
+            else self._router
+        )
         result: T | None = None
         request_failed = False
 
@@ -170,13 +176,19 @@ class LLMGateway:
             fallback_used=False,
         ) as span:
             try:
-                response = self._router.completion(
-                    model=policy.primary_group,
-                    messages=[{"role": "user", "content": prompt}],
-                    response_format=response_model,
-                    enable_json_schema_validation=True,
-                    turn_off_message_logging=True,
-                    num_retries=0,
+                completion_options: dict[str, object] = {
+                    "model": policy.primary_group,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "response_format": response_model,
+                    "enable_json_schema_validation": True,
+                    "turn_off_message_logging": True,
+                    "num_retries": 0,
+                }
+                if temperature is not None:
+                    completion_options["temperature"] = temperature
+
+                response = router.completion(
+                    **completion_options,
                 )
                 result = _validate_response(response, response_model)
             except _REQUEST_ERRORS as error:
@@ -192,7 +204,8 @@ class LLMGateway:
                     span.set_attribute("final_model", final_model)
 
         if request_failed:
-            raise LLMGatewayError("Resume parsing model request failed.") from None
+            task_name = task.value.replace("_", " ").capitalize()
+            raise LLMGatewayError(f"{task_name} model request failed.") from None
 
         if result is None:
             raise AssertionError("Structured response validation produced no result.")
@@ -202,4 +215,4 @@ class LLMGateway:
 
 @lru_cache(maxsize=1)
 def get_llm_gateway() -> LLMGateway:
-    return LLMGateway(router=get_litellm_router())
+    return LLMGateway()
