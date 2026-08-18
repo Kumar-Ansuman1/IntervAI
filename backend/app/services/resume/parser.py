@@ -1,12 +1,16 @@
 import io
 
 import logfire
+from dotenv import load_dotenv
 from langchain_core.prompts import PromptTemplate
+from langchain_google_genai import ChatGoogleGenerativeAI
 from pypdf import PdfReader
 
 from backend.app.schemas.resume import ResumeData
-from backend.app.services.llm.gateway import LLMGateway, get_llm_gateway
-from backend.app.services.llm.policies import LLMTask
+
+load_dotenv()
+
+RESUME_MODEL = "gemini-3.5-flash"
 
 
 def extract_text_from_pdf(pdf_bytes: bytes) -> str:
@@ -28,16 +32,16 @@ def extract_text_from_pdf(pdf_bytes: bytes) -> str:
         return text
 
 
-def extract_resume_details(
-    pdf_bytes: bytes,
-    gateway: LLMGateway | None = None,
-) -> ResumeData:
+def extract_resume_details(pdf_bytes: bytes) -> ResumeData:
     resume_text = extract_text_from_pdf(pdf_bytes)
 
     with logfire.span(
-        "resume: prepare prompt",
+        "resume: prepare model and prompt",
         extracted_character_count=len(resume_text),
     ):
+        model = ChatGoogleGenerativeAI(model=RESUME_MODEL)
+        structured_model = model.with_structured_output(ResumeData)
+
         template = PromptTemplate(
             template="""
                 You are an expert resume parsing assistant.
@@ -53,15 +57,11 @@ def extract_resume_details(
         prompt = template.invoke({"resume_text": resume_text})
 
     with logfire.span(
-        "resume: request structured parsing",
+        "resume: invoke structured model",
+        model_name=RESUME_MODEL,
         input_character_count=len(resume_text),
     ) as span:
-        gateway = gateway or get_llm_gateway()
-        result = gateway.generate_structured(
-            task=LLMTask.RESUME_PARSING,
-            prompt=prompt,
-            response_model=ResumeData,
-        )
+        result = structured_model.invoke(prompt)
         span.set_attribute("response_type", type(result).__name__)
 
     return result
