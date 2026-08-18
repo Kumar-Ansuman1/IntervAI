@@ -181,6 +181,25 @@ def test_resume_policy_defaults_to_provider_prefixed_primary(
     assert policy.fallback_group == "resume-fallback"
 
 
+def test_answer_analysis_defaults_to_existing_model(monkeypatch) -> None:
+    monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_MODEL", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_MODEL", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_API_BASE", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_API_KEY_ENV", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_API_BASE", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_API_KEY_ENV", raising=False)
+    monkeypatch.delenv("ANSWER_ANALYSIS_MODEL_TIMEOUT_SECONDS", raising=False)
+
+    config = get_task_model_config(LLMTask.ANSWER_ANALYSIS)
+
+    assert config.primary_model == "gemini/gemini-3.1-flash-lite"
+    assert config.primary_api_key_env == "GOOGLE_API_KEY"
+    assert config.fallback_model is None
+    assert config.timeout_seconds is None
+    assert config.primary_group == "answer-primary"
+    assert config.fallback_group == "answer-fallback"
+
+
 def test_empty_fallback_is_absent(monkeypatch) -> None:
     monkeypatch.setenv("RESUME_FALLBACK_MODEL", "   ")
 
@@ -708,4 +727,3 @@ def test_gateway_factory_reuses_router_and_gateway(monkeypatch) -> None:
 
     assert first is second
     assert router_calls == 1
-
