@@ -1,5 +1,7 @@
+import io
 import logging
 import os
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -7,6 +9,7 @@ from typing import Any
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
 
 import pytest
+from fastapi import UploadFile
 from litellm.exceptions import APIConnectionError
 
 from backend.app.schemas.resume import ResumeData
@@ -19,6 +22,12 @@ from backend.app.services.llm.gateway import (
     TASK_MODELS,
     TaskModelConfig,
     get_task_model_config,
+)
+from backend.app.services.speech import (
+    speech_to_text as speech_to_text_module,
+)
+from backend.app.services.speech import (
+    text_to_speech as text_to_speech_module,
 )
 
 
@@ -86,6 +95,28 @@ class FakeRouter:
         return self.outcome
 
 
+class FakeSpeechResponse:
+    def __init__(self, audio_bytes: bytes = b"wave audio") -> None:
+        self.audio_bytes = audio_bytes
+
+    def stream_to_file(self, output_path: str | Path) -> None:
+        Path(output_path).write_bytes(self.audio_bytes)
+
+
+class FakeSpeechGateway:
+    def __init__(self) -> None:
+        self.stt_calls: list[dict[str, Any]] = []
+        self.tts_calls: list[dict[str, Any]] = []
+
+    def speech_to_text(self, **kwargs: Any) -> str:
+        self.stt_calls.append(kwargs)
+        return "Gateway transcript"
+
+    def text_to_speech(self, **kwargs: Any) -> str:
+        self.tts_calls.append(kwargs)
+        return str(kwargs["output_path"])
+
+
 class RouterOwnedFallback:
     def __init__(
         self,
@@ -129,7 +160,15 @@ class RecordedSpan:
 
 
 @pytest.fixture(autouse=True)
-def clear_gateway_caches():
+def clear_gateway_caches(monkeypatch):
+    monkeypatch.setenv(
+        "RESUME_PRIMARY_MODEL",
+        "gemini/gemini-3.5-flash",
+    )
+    monkeypatch.setenv(
+        "RESUME_PRIMARY_API_KEY_ENV",
+        "GOOGLE_API_KEY",
+    )
     router_logger = logging.getLogger("LiteLLM Router")
     previous_logger_disabled = router_logger.disabled
     previous_turn_off_message_logging = (
@@ -145,7 +184,13 @@ def clear_gateway_caches():
     gateway_module.get_litellm_router.cache_clear()
     yield
     gateway_module.get_llm_gateway.cache_clear()
-    gateway_module.get_litellm_router.cache_clear()
+    router_cache_clear = getattr(
+        gateway_module.get_litellm_router,
+        "cache_clear",
+        None,
+    )
+    if callable(router_cache_clear):
+        router_cache_clear()
     router_logger.disabled = previous_logger_disabled
     gateway_module.litellm.turn_off_message_logging = (
         previous_turn_off_message_logging
@@ -158,34 +203,50 @@ def clear_gateway_caches():
     )
 
 
-def test_resume_policy_defaults_to_provider_prefixed_primary(
+def test_resume_policy_reads_provider_prefixed_primary_from_environment(
     monkeypatch,
 ) -> None:
-    monkeypatch.delenv("RESUME_PRIMARY_MODEL", raising=False)
+    monkeypatch.setenv("RESUME_PRIMARY_MODEL", "groq/test-model")
+    monkeypatch.setenv("RESUME_PRIMARY_API_KEY_ENV", "GROQ_API_KEY")
     monkeypatch.delenv("RESUME_FALLBACK_MODEL", raising=False)
     monkeypatch.delenv("RESUME_PRIMARY_API_BASE", raising=False)
-    monkeypatch.delenv("RESUME_PRIMARY_API_KEY_ENV", raising=False)
     monkeypatch.delenv("RESUME_FALLBACK_API_BASE", raising=False)
     monkeypatch.delenv("RESUME_FALLBACK_API_KEY_ENV", raising=False)
     monkeypatch.delenv("RESUME_MODEL_TIMEOUT_SECONDS", raising=False)
 
     policy = get_task_model_config(LLMTask.RESUME_PARSING)
 
-    assert policy.primary_model == TASK_MODELS[LLMTask.RESUME_PARSING].primary_model
-    assert policy.primary_model == "gemini/gemini-3.5-flash"
+    assert TASK_MODELS[LLMTask.RESUME_PARSING].primary_model == ""
+    assert policy.primary_model == "groq/test-model"
     assert policy.primary_api_base is None
-    assert policy.primary_api_key_env == "GOOGLE_API_KEY"
+    assert policy.primary_api_key_env == "GROQ_API_KEY"
     assert policy.fallback_model is None
     assert policy.timeout_seconds is None
     assert policy.primary_group == "resume-primary"
     assert policy.fallback_group == "resume-fallback"
 
 
-def test_answer_analysis_defaults_to_existing_model(monkeypatch) -> None:
-    monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_MODEL", raising=False)
+def test_missing_primary_model_is_rejected(monkeypatch) -> None:
+    monkeypatch.delenv("RESUME_PRIMARY_MODEL", raising=False)
+
+    with pytest.raises(
+        LLMGatewayConfigurationError,
+        match="RESUME_PRIMARY_MODEL is required",
+    ):
+        get_task_model_config(LLMTask.RESUME_PARSING)
+
+
+def test_answer_analysis_reads_model_from_environment(monkeypatch) -> None:
+    monkeypatch.setenv(
+        "ANSWER_ANALYSIS_PRIMARY_MODEL",
+        "gemini/gemini-3.1-flash-lite",
+    )
+    monkeypatch.setenv(
+        "ANSWER_ANALYSIS_PRIMARY_API_KEY_ENV",
+        "GOOGLE_API_KEY",
+    )
     monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_MODEL", raising=False)
     monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_API_BASE", raising=False)
-    monkeypatch.delenv("ANSWER_ANALYSIS_PRIMARY_API_KEY_ENV", raising=False)
     monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_API_BASE", raising=False)
     monkeypatch.delenv("ANSWER_ANALYSIS_FALLBACK_API_KEY_ENV", raising=False)
     monkeypatch.delenv("ANSWER_ANALYSIS_MODEL_TIMEOUT_SECONDS", raising=False)
@@ -253,9 +314,7 @@ def test_router_factory_builds_only_primary_without_fallback(
         return sentinel_router
 
     monkeypatch.setenv("GOOGLE_API_KEY", api_key)
-    monkeypatch.delenv("RESUME_PRIMARY_MODEL", raising=False)
     monkeypatch.delenv("RESUME_PRIMARY_API_BASE", raising=False)
-    monkeypatch.delenv("RESUME_PRIMARY_API_KEY_ENV", raising=False)
     monkeypatch.setenv("RESUME_FALLBACK_MODEL", "")
     monkeypatch.setenv("RESUME_FALLBACK_API_BASE", "")
     monkeypatch.setenv("RESUME_FALLBACK_API_KEY_ENV", "")
@@ -707,12 +766,231 @@ def test_litellm_failure_logging_does_not_expose_model_content(
     assert private_api_key not in emitted_output
 
 
-def test_gateway_factory_reuses_router_and_gateway(monkeypatch) -> None:
+def test_speech_to_text_uses_environment_selected_primary(
+    monkeypatch,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_transcription(**kwargs: Any) -> dict[str, str]:
+        calls.append(kwargs)
+        return {"text": "  Primary transcript  "}
+
+    monkeypatch.setattr(
+        gateway_module.litellm,
+        "transcription",
+        fake_transcription,
+    )
+    monkeypatch.setenv(
+        "SPEECH_TO_TEXT_PRIMARY_REQUEST_MODE",
+        "transcription",
+    )
+    gateway = LLMGateway(
+        config_loader=lambda task: TaskModelConfig(
+            env_prefix="SPEECH_TO_TEXT",
+            primary_model="groq/whisper-test",
+            primary_group="stt-primary",
+            fallback_group="stt-fallback",
+        )
+    )
+
+    transcript = gateway.speech_to_text(
+        audio_bytes=b"audio bytes",
+        filename="answer.webm",
+        mime_type="audio/webm",
+    )
+
+    assert transcript == "Primary transcript"
+    assert len(calls) == 1
+    assert calls[0]["model"] == "groq/whisper-test"
+    assert calls[0]["file"] == (
+        "answer.webm",
+        b"audio bytes",
+        "audio/webm",
+    )
+    assert "language" not in calls[0]
+
+
+def test_speech_to_text_retries_once_with_fallback(monkeypatch) -> None:
+    transcription_calls: list[dict[str, Any]] = []
+    completion_calls: list[dict[str, Any]] = []
+
+    def fake_transcription(**kwargs: Any) -> dict[str, str]:
+        transcription_calls.append(kwargs)
+        raise _provider_error("private STT provider payload")
+
+    def fake_completion(**kwargs: Any) -> SimpleNamespace:
+        completion_calls.append(kwargs)
+        return _response(
+            "Fallback transcript",
+            model="gemini/fallback-stt",
+        )
+
+    monkeypatch.setattr(
+        gateway_module.litellm,
+        "transcription",
+        fake_transcription,
+    )
+    monkeypatch.setattr(
+        gateway_module.litellm,
+        "completion",
+        fake_completion,
+    )
+    monkeypatch.setenv(
+        "SPEECH_TO_TEXT_PRIMARY_REQUEST_MODE",
+        "transcription",
+    )
+    monkeypatch.setenv(
+        "SPEECH_TO_TEXT_FALLBACK_REQUEST_MODE",
+        "completion",
+    )
+    gateway = LLMGateway(
+        config_loader=lambda task: TaskModelConfig(
+            env_prefix="SPEECH_TO_TEXT",
+            primary_model="groq/primary-stt",
+            fallback_model="gemini/fallback-stt",
+            primary_group="stt-primary",
+            fallback_group="stt-fallback",
+        )
+    )
+
+    transcript = gateway.speech_to_text(audio_bytes=b"audio bytes")
+
+    assert transcript == "Fallback transcript"
+    assert transcription_calls[0]["model"] == "groq/primary-stt"
+    assert completion_calls[0]["model"] == "gemini/fallback-stt"
+    content = completion_calls[0]["messages"][0]["content"]
+    assert content[0]["text"] == gateway_module.STT_PROMPT
+    assert content[1]["input_audio"] == {
+        "data": "YXVkaW8gYnl0ZXM=",
+        "format": "wav",
+    }
+
+
+def test_text_to_speech_writes_primary_audio(monkeypatch, tmp_path) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_speech(**kwargs: Any) -> FakeSpeechResponse:
+        calls.append(kwargs)
+        return FakeSpeechResponse(b"primary audio")
+
+    monkeypatch.setattr(gateway_module.litellm, "speech", fake_speech)
+    monkeypatch.setenv("TEXT_TO_SPEECH_PRIMARY_VOICE", "test-voice")
+    monkeypatch.setenv("TEXT_TO_SPEECH_PRIMARY_RESPONSE_FORMAT", "wav")
+    gateway = LLMGateway(
+        config_loader=lambda task: TaskModelConfig(
+            env_prefix="TEXT_TO_SPEECH",
+            primary_model="groq/primary-tts",
+            primary_group="tts-primary",
+            fallback_group="tts-fallback",
+        )
+    )
+    output_path = tmp_path / "question.wav"
+
+    result = gateway.text_to_speech(
+        text="Tell me about Python.",
+        output_path=output_path,
+    )
+
+    assert result == str(output_path)
+    assert output_path.read_bytes() == b"primary audio"
+    assert calls == [
+        {
+            "input": "Tell me about Python.",
+            "voice": "test-voice",
+            "model": "groq/primary-tts",
+            "max_retries": 0,
+            "turn_off_message_logging": True,
+            "response_format": "wav",
+        }
+    ]
+
+
+def test_text_to_speech_skips_limited_primary_and_uses_fallback(
+    monkeypatch,
+    tmp_path,
+) -> None:
+    calls: list[dict[str, Any]] = []
+
+    def fake_speech(**kwargs: Any) -> FakeSpeechResponse:
+        calls.append(kwargs)
+        return FakeSpeechResponse(b"fallback audio")
+
+    monkeypatch.setattr(gateway_module.litellm, "speech", fake_speech)
+    monkeypatch.setenv("TEXT_TO_SPEECH_PRIMARY_MAX_CHARACTERS", "5")
+    monkeypatch.setenv("TEXT_TO_SPEECH_FALLBACK_VOICE", "fallback-voice")
+    gateway = LLMGateway(
+        config_loader=lambda task: TaskModelConfig(
+            env_prefix="TEXT_TO_SPEECH",
+            primary_model="groq/limited-tts",
+            fallback_model="gemini/fallback-tts",
+            primary_group="tts-primary",
+            fallback_group="tts-fallback",
+        )
+    )
+    output_path = tmp_path / "question.wav"
+
+    result = gateway.text_to_speech(
+        text="Long interview question",
+        output_path=output_path,
+    )
+
+    assert result == str(output_path)
+    assert output_path.read_bytes() == b"fallback audio"
+    assert [call["model"] for call in calls] == ["gemini/fallback-tts"]
+    assert calls[0]["voice"] == "fallback-voice"
+
+
+def test_speech_services_delegate_to_gateway(monkeypatch, tmp_path) -> None:
+    gateway = FakeSpeechGateway()
+    monkeypatch.setattr(
+        speech_to_text_module,
+        "get_llm_gateway",
+        lambda: gateway,
+    )
+    monkeypatch.setattr(
+        text_to_speech_module,
+        "get_llm_gateway",
+        lambda: gateway,
+    )
+    monkeypatch.setattr(text_to_speech_module, "OUTPUT_DIR", tmp_path)
+    upload = UploadFile(
+        filename="answer.wav",
+        file=io.BytesIO(b"audio bytes"),
+    )
+
+    transcript = speech_to_text_module.speech_to_text(upload)
+    audio_path = text_to_speech_module.text_to_speech(
+        "Question text",
+        filename="question.wav",
+    )
+
+    assert transcript == "Gateway transcript"
+    assert gateway.stt_calls == [
+        {
+            "audio_bytes": b"audio bytes",
+            "filename": "answer.wav",
+            "mime_type": None,
+        }
+    ]
+    assert audio_path == str(tmp_path / "question.wav")
+    assert gateway.tts_calls == [
+        {
+            "text": "Question text",
+            "output_path": tmp_path / "question.wav",
+            "voice": None,
+        }
+    ]
+
+
+def test_gateway_factory_reuses_gateway_and_loads_router_lazily(
+    monkeypatch,
+) -> None:
     sentinel_router = FakeRouter(_response(_resume_data().model_dump_json()))
     router_calls = 0
 
-    def fake_router_factory() -> FakeRouter:
+    def fake_router_factory(task: LLMTask) -> FakeRouter:
         nonlocal router_calls
+        assert task is LLMTask.RESUME_PARSING
         router_calls += 1
         return sentinel_router
 
@@ -726,4 +1004,13 @@ def test_gateway_factory_reuses_router_and_gateway(monkeypatch) -> None:
     second = gateway_module.get_llm_gateway()
 
     assert first is second
+    assert router_calls == 0
+
+    result = first.generate_structured(
+        task=LLMTask.RESUME_PARSING,
+        prompt="resume prompt",
+        response_model=ResumeData,
+    )
+
+    assert result == _resume_data()
     assert router_calls == 1

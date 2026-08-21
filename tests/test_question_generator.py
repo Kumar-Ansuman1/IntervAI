@@ -1,9 +1,28 @@
-from backend.app.services.interview.question_generator import generate_adaptive_question
+from backend.app.services.interview import (
+    question_generator as question_generator_module,
+)
+from backend.app.services.interview.question_generator import (
+    generate_adaptive_question,
+)
 
-from backend.app.schemas.interview import AdaptiveInterviewState,AnswerAnalysis,InterviewDecision,InterviewTurn
+from backend.app.schemas.interview import (
+    AdaptiveInterviewState,
+    AdaptiveQuestion,
+    AnswerAnalysis,
+    InterviewDecision,
+    InterviewTurn,
+)
+
+
+class FakeGateway:
+    def __init__(self, result: AdaptiveQuestion) -> None:
+        self.result = result
+
+    def generate_structured(self, **_kwargs) -> AdaptiveQuestion:
+        return self.result
+
 
 def create_test_analysis() -> AnswerAnalysis:
-
     return AnswerAnalysis(
         correctness_score=7,
         completeness_score=5,
@@ -24,6 +43,7 @@ def create_test_analysis() -> AnswerAnalysis:
         recommended_difficulty="same",
         follow_up_focus="Practical use cases of tuples",
     )
+
 
 def create_test_state() -> AdaptiveInterviewState:
     previous_turn = InterviewTurn(
@@ -70,15 +90,28 @@ def create_test_state() -> AdaptiveInterviewState:
     )
 
 
-def test_follow_up_question() -> None:
+def test_follow_up_question(monkeypatch) -> None:
     analysis = create_test_analysis()
     state = create_test_state()
 
     decision = InterviewDecision(
-    action="clarify",
-    next_difficulty="easy",
-    question_focus="Meaning of mutability",
-    reason="The candidate does not understand mutability.",
+        action="clarify",
+        next_difficulty="easy",
+        question_focus="Meaning of mutability",
+        reason="The candidate does not understand mutability.",
+    )
+    expected = AdaptiveQuestion(
+        question="What does mutability mean in Python?",
+        skill="Python",
+        topic="Data structures",
+        difficulty="easy",
+        question_type="clarification",
+        focus="Meaning of mutability",
+    )
+    monkeypatch.setattr(
+        question_generator_module,
+        "get_llm_gateway",
+        lambda: FakeGateway(expected),
     )
 
     question = generate_adaptive_question(
@@ -87,24 +120,7 @@ def test_follow_up_question() -> None:
         decision=decision,
     )
 
-    print("\nADAPTIVE QUESTION")
-    print("-" * 50)
-    print(f"Question: {question.question}")
-    print(f"Skill: {question.skill}")
-    print(f"Topic: {question.topic}")
-    print(f"Difficulty: {question.difficulty}")
-    print(f"Question type: {question.question_type}")
-    print(f"Focus: {question.focus}")
-
     assert question.skill.lower() == "python"
     assert question.difficulty == "easy"
     assert question.question_type == "clarification"
     assert question.question.endswith("?")
-
-
-if __name__ == "__main__":
-    test_follow_up_question()
-
-    print(
-        "\nAdaptive question generator test passed."
-    )

@@ -1,3 +1,4 @@
+import base64
 import logging
 import math
 import os
@@ -45,60 +46,38 @@ class TaskModelConfig:
     timeout_seconds: float | None = None
 
 
-STT_POLICY = {
-    "primary": "groq/whisper-large-v3-turbo",
-    "fallback": "gemini/gemini-3.1-flash-lite",
-}
-
-TTS_POLICY = {
-    "primary": "groq/canopylabs/orpheus-v1-english",
-    "fallback": "gemini/gemini-3.1-flash-tts-preview",
-}
-
 STT_PROMPT = "Transcribe this interview answer. Return only the transcript."
-ORPHEUS_TTS_VOICE = "troy"
-GEMINI_TTS_VOICE = "Kore"
-ORPHEUS_MAX_INPUT_CHARACTERS = 200
 
 
 TASK_MODELS: dict[LLMTask, TaskModelConfig] = {
     LLMTask.RESUME_PARSING: TaskModelConfig(
         env_prefix="RESUME",
-        primary_model="gemini/gemini-3.5-flash",
-        primary_api_key_env="GOOGLE_API_KEY",
+        primary_model="",
         primary_group="resume-primary",
         fallback_group="resume-fallback",
     ),
     LLMTask.QUESTION_GENERATION: TaskModelConfig(
         env_prefix="QUESTION_GENERATION",
-        primary_model="gemini/gemini-3.1-flash-lite",
-        primary_api_key_env="GOOGLE_API_KEY",
+        primary_model="",
         primary_group="question-primary",
         fallback_group="question-fallback",
     ),
     LLMTask.ANSWER_ANALYSIS: TaskModelConfig(
         env_prefix="ANSWER_ANALYSIS",
-        primary_model="gemini/gemini-3.1-flash-lite",
-        primary_api_key_env="GOOGLE_API_KEY",
+        primary_model="",
         primary_group="answer-primary",
         fallback_group="answer-fallback",
     ),
     LLMTask.SPEECH_TO_TEXT: TaskModelConfig(
         env_prefix="SPEECH_TO_TEXT",
-        primary_model=STT_POLICY["primary"],
-        primary_api_key_env="GROQ_API_KEY",
+        primary_model="",
         primary_group="stt-primary",
-        fallback_model=STT_POLICY["fallback"],
-        fallback_api_key_env="GOOGLE_API_KEY",
         fallback_group="stt-fallback",
     ),
     LLMTask.TEXT_TO_SPEECH: TaskModelConfig(
         env_prefix="TEXT_TO_SPEECH",
-        primary_model=TTS_POLICY["primary"],
-        primary_api_key_env="GROQ_API_KEY",
+        primary_model="",
         primary_group="tts-primary",
-        fallback_model=TTS_POLICY["fallback"],
-        fallback_api_key_env="GOOGLE_API_KEY",
         fallback_group="tts-fallback",
     ),
 }
@@ -116,6 +95,10 @@ class _StructuredResponseError(ValueError):
     """Raised when LiteLLM returns no usable structured content."""
 
 
+class _SpeechResponseError(ValueError):
+    """Raised when LiteLLM returns no usable speech content."""
+
+
 _REQUEST_ERRORS = tuple(LITELLM_EXCEPTION_TYPES) + (
     RouterRateLimitError,
     RouterRateLimitErrorBasic,
@@ -128,13 +111,21 @@ _SPEECH_REQUEST_ERRORS = _REQUEST_ERRORS + (
     OSError,
     TimeoutError,
     TypeError,
-    ValueError,
+    _SpeechResponseError,
 )
 
 
 def _optional_env(variable_name: str, default: str | None = None) -> str | None:
     value = os.getenv(variable_name, default)
     return value.strip() if value and value.strip() else None
+
+
+def _required_env(variable_name: str) -> str:
+    value = _optional_env(variable_name)
+    if value is None:
+        raise LLMGatewayConfigurationError(f"{variable_name} is required.")
+
+    return value
 
 
 def _validated_model(variable_name: str, model: str) -> str:
@@ -167,6 +158,26 @@ def _timeout_seconds(variable_name: str) -> float | None:
     return timeout_seconds
 
 
+def _positive_integer(variable_name: str) -> int | None:
+    configured_value = _optional_env(variable_name)
+    if configured_value is None:
+        return None
+
+    try:
+        value = int(configured_value)
+    except ValueError as error:
+        raise LLMGatewayConfigurationError(
+            f"{variable_name} must be a positive integer."
+        ) from error
+
+    if value <= 0:
+        raise LLMGatewayConfigurationError(
+            f"{variable_name} must be a positive integer."
+        )
+
+    return value
+
+
 def get_task_model_config(task: LLMTask) -> TaskModelConfig:
     try:
         defaults = TASK_MODELS[task]
@@ -177,18 +188,14 @@ def get_task_model_config(task: LLMTask) -> TaskModelConfig:
 
     prefix = defaults.env_prefix
     primary_model_variable = f"{prefix}_PRIMARY_MODEL"
-    primary_model = _optional_env(
-        primary_model_variable,
-        defaults.primary_model,
-    )
+    primary_model = _optional_env(primary_model_variable)
     if primary_model is None:
-        raise AssertionError(f"The {task.value} primary model cannot be absent.")
+        raise LLMGatewayConfigurationError(
+            f"{primary_model_variable} is required."
+        )
 
     fallback_model_variable = f"{prefix}_FALLBACK_MODEL"
-    fallback_model = _optional_env(
-        fallback_model_variable,
-        defaults.fallback_model,
-    )
+    fallback_model = _optional_env(fallback_model_variable)
 
     return TaskModelConfig(
         env_prefix=prefix,
@@ -198,11 +205,9 @@ def get_task_model_config(task: LLMTask) -> TaskModelConfig:
         ),
         primary_api_base=_optional_env(
             f"{prefix}_PRIMARY_API_BASE",
-            defaults.primary_api_base,
         ),
         primary_api_key_env=_optional_env(
             f"{prefix}_PRIMARY_API_KEY_ENV",
-            defaults.primary_api_key_env,
         ),
         primary_group=defaults.primary_group,
         fallback_model=(
@@ -212,11 +217,9 @@ def get_task_model_config(task: LLMTask) -> TaskModelConfig:
         ),
         fallback_api_base=_optional_env(
             f"{prefix}_FALLBACK_API_BASE",
-            defaults.fallback_api_base,
         ),
         fallback_api_key_env=_optional_env(
             f"{prefix}_FALLBACK_API_KEY_ENV",
-            defaults.fallback_api_key_env,
         ),
         fallback_group=defaults.fallback_group,
         timeout_seconds=_timeout_seconds(
@@ -394,7 +397,7 @@ class LLMGateway:
         ),
     ) -> None:
         self._use_task_routers = router is None
-        self._router = router if router is not None else get_litellm_router()
+        self._router = router
         self._config_loader = config_loader
 
     def speech_to_text(
@@ -409,11 +412,6 @@ class LLMGateway:
     ) -> str:
         _configure_litellm_privacy()
         config = self._config_loader(LLMTask.SPEECH_TO_TEXT)
-        audio_file: object = (
-            (filename, audio_bytes, mime_type)
-            if mime_type
-            else (filename, audio_bytes)
-        )
         attempts = [("primary", config.primary_model, False)]
         if config.fallback_model:
             attempts.append(("fallback", config.fallback_model, True))
@@ -421,6 +419,19 @@ class LLMGateway:
         for attempt, selected_model, fallback in attempts:
             provider = selected_model.partition("/")[0]
             started_at = time.perf_counter()
+            option_prefix = (
+                f"{config.env_prefix}_FALLBACK"
+                if fallback
+                else f"{config.env_prefix}_PRIMARY"
+            )
+            request_mode = _required_env(
+                f"{option_prefix}_REQUEST_MODE"
+            ).lower()
+            if request_mode not in {"transcription", "completion"}:
+                raise LLMGatewayConfigurationError(
+                    f"{option_prefix}_REQUEST_MODE must be "
+                    "'transcription' or 'completion'."
+                )
 
             with logfire.span(
                 "litellm gateway: speech request",
@@ -436,18 +447,70 @@ class LLMGateway:
                         config,
                         fallback=fallback,
                     )
-                    response = litellm.transcription(
-                        file=audio_file,
-                        language=language,
-                        prompt=prompt,
-                        response_format=response_format,
-                        **request_options,
-                    )
-                    transcript = getattr(response, "text", None)
-                    if transcript is None and isinstance(response, Mapping):
-                        transcript = response.get("text")
+                    if request_mode == "transcription":
+                        audio_file: object = (
+                            (filename, audio_bytes, mime_type)
+                            if mime_type
+                            else (filename, audio_bytes)
+                        )
+                        transcription_options: dict[str, object] = {
+                            "file": audio_file,
+                            "prompt": prompt,
+                            "response_format": response_format,
+                            **request_options,
+                        }
+                        if language:
+                            transcription_options["language"] = language
+
+                        response = litellm.transcription(
+                            **transcription_options,
+                        )
+                        transcript = getattr(response, "text", None)
+                        if transcript is None and isinstance(response, Mapping):
+                            transcript = response.get("text")
+                    else:
+                        audio_format = ""
+                        if mime_type:
+                            audio_format = (
+                                mime_type.split(";", 1)[0]
+                                .partition("/")[2]
+                                .removeprefix("x-")
+                            )
+                        if not audio_format:
+                            audio_format = (
+                                Path(filename).suffix.lstrip(".").lower()
+                            )
+                        audio_format = audio_format or "wav"
+                        encoded_audio = base64.b64encode(audio_bytes).decode(
+                            "ascii"
+                        )
+                        response = litellm.completion(
+                            messages=[
+                                {
+                                    "role": "user",
+                                    "content": [
+                                        {"type": "text", "text": prompt},
+                                        {
+                                            "type": "input_audio",
+                                            "input_audio": {
+                                                "data": encoded_audio,
+                                                "format": audio_format,
+                                            },
+                                        },
+                                    ],
+                                }
+                            ],
+                            **request_options,
+                        )
+                        try:
+                            transcript = response.choices[0].message.content
+                        except (AttributeError, IndexError, TypeError) as error:
+                            raise _SpeechResponseError from error
+
                     if not isinstance(transcript, str) or not transcript.strip():
-                        raise ValueError("The transcription response was empty.")
+                        raise _SpeechResponseError(
+                            "The transcription response was empty."
+                        )
                 except _SPEECH_REQUEST_ERRORS as error:
                     span.set_attribute("status", "error")
                     span.set_attribute("error_type", type(error).__name__)
@@ -473,37 +536,37 @@ class LLMGateway:
         *,
         text: str,
         output_path: str | Path,
+        voice: str | None = None,
     ) -> str:
         _configure_litellm_privacy()
         config = self._config_loader(LLMTask.TEXT_TO_SPEECH)
-        fallback_only = len(text) > ORPHEUS_MAX_INPUT_CHARACTERS
-        attempts: list[tuple[str, str, bool, str, str | None]] = []
+        max_primary_characters = _positive_integer(
+            f"{config.env_prefix}_PRIMARY_MAX_CHARACTERS"
+        )
+        fallback_only = (
+            max_primary_characters is not None
+            and len(text) > max_primary_characters
+        )
+        attempts: list[tuple[str, str, bool]] = []
 
         if not fallback_only:
-            attempts.append(
-                (
-                    "primary",
-                    config.primary_model,
-                    False,
-                    ORPHEUS_TTS_VOICE,
-                    "wav",
-                )
-            )
+            attempts.append(("primary", config.primary_model, False))
         if config.fallback_model:
-            attempts.append(
-                (
-                    "fallback",
-                    config.fallback_model,
-                    True,
-                    GEMINI_TTS_VOICE,
-                    None,
-                )
-            )
+            attempts.append(("fallback", config.fallback_model, True))
 
         audio_path = Path(output_path)
-        for attempt, selected_model, fallback, voice, audio_format in attempts:
+        for attempt, selected_model, fallback in attempts:
             provider = selected_model.partition("/")[0]
             started_at = time.perf_counter()
+            option_prefix = (
+                f"{config.env_prefix}_FALLBACK"
+                if fallback
+                else f"{config.env_prefix}_PRIMARY"
+            )
+            selected_voice = voice or _required_env(f"{option_prefix}_VOICE")
+            audio_format = _optional_env(
+                f"{option_prefix}_RESPONSE_FORMAT"
+            )
 
             with logfire.span(
                 "litellm gateway: speech request",
@@ -511,7 +574,7 @@ class LLMGateway:
                 selected_model=selected_model,
                 provider=provider,
                 attempt=attempt,
-                voice=voice,
+                voice=selected_voice,
                 status="started",
                 success=False,
                 primary_skipped_input_limit=(fallback_only and fallback),
@@ -526,12 +589,14 @@ class LLMGateway:
 
                     response = litellm.speech(
                         input=text,
-                        voice=voice,
+                        voice=selected_voice,
                         **request_options,
                     )
                     stream_to_file = getattr(response, "stream_to_file", None)
                     if not callable(stream_to_file):
-                        raise ValueError("The speech response contained no audio.")
+                        raise _SpeechResponseError(
+                            "The speech response contained no audio."
+                        )
 
                     audio_path.parent.mkdir(parents=True, exist_ok=True)
                     stream_to_file(audio_path)
@@ -561,12 +626,11 @@ class LLMGateway:
         config = self._config_loader(task)
         router = (
             get_litellm_router(task)
-            if (
-                self._use_task_routers
-                and task is not LLMTask.RESUME_PARSING
-            )
+            if self._use_task_routers
             else self._router
         )
+        if router is None:
+            raise AssertionError("The LiteLLM router is unavailable.")
         result: T | None = None
         request_failed = False
 
