@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 
 from fastapi import FastAPI
@@ -19,21 +20,24 @@ from backend.app.api.v1.router import api_router  # noqa: E402
 def create_app() -> FastAPI:
     app = FastAPI(title="IntervAI API")
 
-    # Allow requests from the React frontend.
+    allowed_origins = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+    ]
+
+    frontend_url = os.getenv("FRONTEND_URL", "").strip().rstrip("/")
+
+    if frontend_url:
+        allowed_origins.append(frontend_url)
+
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[
-            "http://localhost:5173",
-            "http://127.0.0.1:5173",
-
-            # Add your deployed frontend URL here later.
-        ],
+        allow_origins=allowed_origins,
         allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_methods=["GET", "POST", "OPTIONS"],
+        allow_headers=["Accept", "Content-Type", "Authorization"],
     )
 
-    # Make generated question audio accessible to the browser.
     audio_directory = Path("temp/audio")
     audio_directory.mkdir(parents=True, exist_ok=True)
 

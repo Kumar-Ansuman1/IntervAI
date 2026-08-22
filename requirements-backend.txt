@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic
+langgraph
+langchain-core
+langchain-google-genai
+litellm
+google-genai
+python-dotenv
+pypdf
+requests
+logfire[fastapi,google-genai]
