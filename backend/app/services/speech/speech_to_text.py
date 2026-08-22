@@ -1,43 +1,24 @@
-import os
-import tempfile
-from pathlib import Path
-
-from dotenv import load_dotenv
+import logfire
 from fastapi import UploadFile
-from google import genai
 
-load_dotenv()
+from backend.app.services.llm.gateway import get_llm_gateway
 
 
 def speech_to_text(audio: UploadFile) -> str:
-    api_key = os.getenv("GOOGLE_API_KEY")
+    filename = audio.filename or "interview-answer.wav"
 
-    if not api_key:
-        raise ValueError("GOOGLE_API_KEY not found.")
+    with logfire.span(
+        "speech-to-text: read uploaded audio",
+        content_type=audio.content_type,
+    ) as span:
+        audio_bytes = audio.file.read()
+        span.set_attribute("audio_size_bytes", len(audio_bytes))
 
-    client = genai.Client(api_key=api_key)
+    if not audio_bytes:
+        raise ValueError("The uploaded audio file is empty.")
 
-    # Save uploaded file temporarily
-    suffix = Path(audio.filename).suffix or ".wav"
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
-        temp_file.write(audio.file.read())
-        temp_path = temp_file.name
-
-    try:
-        # Upload temporary file to Gemini
-        uploaded_file = client.files.upload(file=temp_path)
-
-        response = client.models.generate_content(
-            model="gemini-3.1-flash-lite",
-            contents=[
-                "Transcribe this interview answer. Return only the transcript.",
-                uploaded_file,
-            ],
-        )
-
-        return response.text.strip()
-
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
+    return get_llm_gateway().speech_to_text(
+        audio_bytes=audio_bytes,
+        filename=filename,
+        mime_type=audio.content_type,
+    )

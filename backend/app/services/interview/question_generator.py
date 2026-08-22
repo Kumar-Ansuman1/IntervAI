@@ -1,20 +1,7 @@
-from dotenv import load_dotenv
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_google_genai import ChatGoogleGenerativeAI
 
 from backend.app.schemas.interview import AdaptiveInterviewState,AdaptiveQuestion,AnswerAnalysis,InterviewDecision
-
-load_dotenv()
-
-#Create the gemini model
-def _create_question_generator():
-
-    model = ChatGoogleGenerativeAI(
-        model="gemini-3.1-flash-lite",
-        temperature=0.3
-    )
-
-    return model.with_structured_output(AdaptiveQuestion)
+from backend.app.services.llm.gateway import LLMTask, get_llm_gateway
 
 #Maps InterviewDescion.action to AdaptiveQuestion.questiontype
 def _map_action_to_question_type(action: str) -> str:
@@ -263,12 +250,9 @@ decision: InterviewDecision) -> AdaptiveQuestion:
 
     try:
 
-        generator = _create_question_generator()
         prompt = _create_question_prompt()
 
-        chain = prompt | generator
-
-        result = chain.invoke(
+        prompt_text = prompt.invoke(
             {
                 "action": decision.action,
                 "question_type": question_type,
@@ -306,11 +290,18 @@ decision: InterviewDecision) -> AdaptiveQuestion:
                 ),
                 "decision_reason": decision.reason,
             }
+        ).to_string()
+
+        result = get_llm_gateway().generate_structured(
+            task=LLMTask.QUESTION_GENERATION,
+            prompt=prompt_text,
+            response_model=AdaptiveQuestion,
+            temperature=0.3,
         )
 
         if not isinstance(result, AdaptiveQuestion):
             raise TypeError(
-                "Gemini did not return a valid "
+                "Model did not return a valid "
                 "AdaptiveQuestion object."
             )
 
@@ -386,7 +377,7 @@ def _validate_generated_question(
         in normalized_previous_questions
     ):
         raise ValueError(
-            "Gemini repeated a previously asked question."
+            "Model repeated a previously asked question."
         )
 
 def _normalize_question(question: str) -> str:
@@ -486,23 +477,27 @@ def generate_initial_question(
     starting_skill = cleaned_skills[0]
 
     try:
-        generator = _create_question_generator()
         prompt = _create_initial_question_prompt()
 
-        chain = prompt | generator
-
-        result = chain.invoke(
+        prompt_text = prompt.invoke(
             {
                 "candidate_name": candidate_name,
                 "skills": _format_list(cleaned_skills),
                 "starting_skill": starting_skill,
                 "starting_difficulty": starting_difficulty,
             }
+        ).to_string()
+
+        result = get_llm_gateway().generate_structured(
+            task=LLMTask.QUESTION_GENERATION,
+            prompt=prompt_text,
+            response_model=AdaptiveQuestion,
+            temperature=0.3,
         )
 
         if not isinstance(result, AdaptiveQuestion):
             raise TypeError(
-                "Gemini did not return a valid "
+                "Model did not return a valid "
                 "AdaptiveQuestion object."
             )
 
@@ -523,3 +518,4 @@ def generate_initial_question(
         raise RuntimeError(
             f"Failed to generate initial question: {error}"
         ) from error
+

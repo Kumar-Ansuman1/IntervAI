@@ -1,58 +1,59 @@
-from backend.app.services.interview.answer_analyzer import analyze_answer,calculate_overall_score
+from typing import Any
 
-
-def test_answer_analyzer() -> None:
-    question = (
-        "What is the difference between a Python list and a tuple?"
-    )
-
-    candidate_answer = (
-    "A list is an ordered mutable collection, while a tuple is "
-    "ordered and immutable. Lists are useful when values need to "
-    "change dynamically. Tuples are suitable for fixed records and "
-    "can be used as dictionary keys when all their elements are "
-    "hashable. Tuples also generally have less memory overhead."
+from backend.app.schemas.interview import AnswerAnalysis
+from backend.app.services.interview import answer_analyzer as analyzer_module
+from backend.app.services.interview.answer_analyzer import (
+    analyze_answer,
+    calculate_overall_score,
 )
+from backend.app.services.llm.gateway import LLMTask
+
+
+class FakeGateway:
+    def __init__(self, result: AnswerAnalysis) -> None:
+        self.result = result
+        self.calls: list[dict[str, Any]] = []
+
+    def generate_structured(self, **kwargs: Any) -> AnswerAnalysis:
+        self.calls.append(kwargs)
+        return self.result
+
+
+def test_answer_analyzer_uses_gateway(monkeypatch) -> None:
+    expected = AnswerAnalysis(
+        correctness_score=9,
+        completeness_score=8,
+        clarity_score=9,
+        practical_understanding_score=8,
+        strengths=["Correctly explains mutability."],
+        missing_concepts=[],
+        misconceptions=[],
+        feedback="Clear and technically correct.",
+        recommended_action="deepen_topic",
+        recommended_difficulty="harder",
+        follow_up_focus="Performance trade-offs",
+    )
+    gateway = FakeGateway(expected)
+    monkeypatch.setattr(
+        analyzer_module,
+        "get_llm_gateway",
+        lambda: gateway,
+    )
 
     analysis = analyze_answer(
-        question=question,
-        candidate_answer=candidate_answer,
+        question="What is the difference between a list and a tuple?",
+        candidate_answer="Lists are mutable and tuples are immutable.",
         skill="Python",
         topic="Data structures",
-        difficulty="easy"
+        difficulty="easy",
     )
 
-    overall_score = calculate_overall_score(analysis)
-
-    print("\nANSWER ANALYSIS")
-    print("-" * 50)
-
-    print(f"Correctness: {analysis.correctness_score}/10")
-    print(f"Completeness: {analysis.completeness_score}/10")
-    print(f"Clarity: {analysis.clarity_score}/10")
-    print(
-        "Practical understanding: "
-        f"{analysis.practical_understanding_score}/10"
-    )
-
-    print(f"Overall score: {overall_score}/10")
-    print(f"Strengths: {analysis.strengths}")
-    print(f"Missing concepts: {analysis.missing_concepts}")
-    print(f"Misconceptions: {analysis.misconceptions}")
-    print(f"Feedback: {analysis.feedback}")
-
-    print(
-        "Recommended action: "
-        f"{analysis.recommended_action}"
-    )
-
-    print(
-        "Recommended difficulty: "
-        f"{analysis.recommended_difficulty}"
-    )
-
-    print(f"Follow-up focus: {analysis.follow_up_focus}")
-
-
-if __name__ == "__main__":
-    test_answer_analyzer()
+    assert analysis == expected
+    assert calculate_overall_score(analysis) == 8.5
+    assert len(gateway.calls) == 1
+    call = gateway.calls[0]
+    assert call["task"] is LLMTask.ANSWER_ANALYSIS
+    assert call["response_model"] is AnswerAnalysis
+    assert call["temperature"] == 0
+    assert "What is the difference between a list and a tuple?" in call["prompt"]
+    assert "Lists are mutable and tuples are immutable." in call["prompt"]
